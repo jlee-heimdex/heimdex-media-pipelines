@@ -1,0 +1,17 @@
+FROM python:3.13-slim
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY src/ src/
+
+# Install contracts from local source (mounted or copied)
+COPY --from=contracts /app /contracts
+RUN pip install --no-cache-dir /contracts
+
+# Install pipelines with only core deps (skip heavy ML extras)
+# opencv-python-headless avoids GUI deps in container
+RUN pip install --no-cache-dir opencv-python-headless typer pytest \
+    && pip install --no-cache-dir --no-deps -e .
+
+COPY tests/ tests/
+CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]

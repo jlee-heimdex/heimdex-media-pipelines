@@ -15,7 +15,7 @@ def test_package_importable():
     """Package root imports without error."""
     mod = importlib.import_module("heimdex_media_pipelines")
     assert hasattr(mod, "__version__")
-    assert mod.__version__ == "0.1.0"
+    assert mod.__version__ == "0.2.0"
 
 
 def test_cli_module_importable():
