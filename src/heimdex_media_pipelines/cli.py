@@ -83,8 +83,17 @@ def doctor(
     except ImportError:
         checks["gpu"] = {"cuda_available": False, "error": "torch not installed"}
 
-    # Summary
-    all_deps = {**checks["dependencies"], **checks["executables"]}
+    deps = checks["dependencies"]
+    exes = checks["executables"]
+
+    has_ffmpeg = exes.get("ffmpeg", {}).get("available", False)
+    checks["pipelines"] = {
+        "speech": deps.get("whisper", {}).get("available", False) and has_ffmpeg,
+        "faces": deps.get("cv2", {}).get("available", False) and deps.get("insightface", {}).get("available", False),
+        "scenes": has_ffmpeg,
+    }
+
+    all_deps = {**deps, **exes}
     available_count = sum(1 for v in all_deps.values() if v.get("available"))
     total_count = len(all_deps)
     checks["summary"] = {
