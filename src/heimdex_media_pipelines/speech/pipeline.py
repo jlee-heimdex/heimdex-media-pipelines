@@ -8,7 +8,7 @@ from heimdex_media_contracts.speech.schemas import PipelineResult, RankedSegment
 from heimdex_media_contracts.speech.tagger import SpeechTagger
 from heimdex_media_contracts.speech.ranker import SegmentRanker
 
-from heimdex_media_pipelines.speech.stt import STTProcessor, convert_to_speech_segments
+from heimdex_media_pipelines.speech.stt import STTProcessor, convert_to_speech_segments, create_stt_processor
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,10 @@ class SpeechSegmentsPipeline:
         ranker: SegmentRanker | None = None,
         whisper_model: str = "base",
         language: str | None = None,
+        backend: str = "auto",
+        api_key: str | None = None,
+        compute_type: str = "auto",
+        beam_size: int = 1,
     ):
         """
         Args:
@@ -32,10 +36,25 @@ class SpeechSegmentsPipeline:
             whisper_model: Whisper model name
             language: Language code (e.g. "ko", "en")
         """
-        self.stt = stt_processor or STTProcessor(
-            model_name=whisper_model,
-            language=language,
-        )
+        if stt_processor is not None:
+            self.stt = stt_processor
+        else:
+            try:
+                self.stt = create_stt_processor(
+                    backend=backend,
+                    model_name=whisper_model,
+                    language=language,
+                    api_key=api_key,
+                    compute_type=compute_type,
+                    beam_size=beam_size,
+                )
+            except ImportError:
+                if backend != "auto":
+                    raise
+                self.stt = STTProcessor(
+                    model_name=whisper_model,
+                    language=language,
+                )
         self.tagger = tagger or SpeechTagger()
         self.ranker = ranker or SegmentRanker()
 

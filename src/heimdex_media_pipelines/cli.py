@@ -7,10 +7,11 @@ Usage:
 """
 
 import json
+import importlib
 import os
 import shutil
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
@@ -28,7 +29,7 @@ app.add_typer(scenes_app, name="scenes")
 app.add_typer(speech_app, name="speech")
 
 
-def _check_importable(module_name: str) -> dict:
+def _check_importable(module_name: str) -> dict[str, object]:
     """Try importing a module and return status dict."""
     try:
         mod = __import__(module_name)
@@ -38,7 +39,7 @@ def _check_importable(module_name: str) -> dict:
         return {"available": False, "error": str(e)}
 
 
-def _check_executable(name: str) -> dict:
+def _check_executable(name: str) -> dict[str, object]:
     """Check if an executable is on PATH."""
     path = shutil.which(name)
     if path:
@@ -52,7 +53,7 @@ def doctor(
     out: Optional[str] = typer.Option(None, help="Write result to file path"),
 ) -> None:
     """Check system dependencies for all pipelines."""
-    checks = {
+    checks: dict[str, Any] = {
         "package_version": _pkg.__version__,
         "python": {
             "version": sys.version,
@@ -63,7 +64,9 @@ def doctor(
             "insightface": _check_importable("insightface"),
             "onnxruntime": _check_importable("onnxruntime"),
             "whisper": _check_importable("whisper"),
+            "faster_whisper": _check_importable("faster_whisper"),
             "torch": _check_importable("torch"),
+            "openai": _check_importable("openai"),
             "typer": _check_importable("typer"),
             "pydantic": _check_importable("pydantic"),
         },
@@ -75,7 +78,7 @@ def doctor(
 
     # GPU check
     try:
-        import torch
+        torch = importlib.import_module("torch")
         checks["gpu"] = {
             "cuda_available": torch.cuda.is_available(),
             "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
@@ -83,12 +86,32 @@ def doctor(
     except ImportError:
         checks["gpu"] = {"cuda_available": False, "error": "torch not installed"}
 
-    deps = checks["dependencies"]
-    exes = checks["executables"]
+    deps: dict[str, dict[str, object]] = checks["dependencies"]
+    exes: dict[str, dict[str, object]] = checks["executables"]
 
     has_ffmpeg = exes.get("ffmpeg", {}).get("available", False)
+    has_whisper = deps.get("whisper", {}).get("available", False)
+    has_faster_whisper = deps.get("faster_whisper", {}).get("available", False)
+    has_torch = deps.get("torch", {}).get("available", False)
+    has_openai = deps.get("openai", {}).get("available", False)
+    has_openai_key = bool(os.getenv("OPENAI_API_KEY"))
+
+    local_pipeline_available = (has_whisper or has_faster_whisper) and has_ffmpeg
+    local_auto_available = (has_whisper and has_torch) or has_faster_whisper
+    api_available = has_openai and has_openai_key
+
+    if has_faster_whisper:
+        speech_backend = "faster-whisper"
+    elif local_auto_available:
+        speech_backend = "local"
+    elif api_available:
+        speech_backend = "api"
+    else:
+        speech_backend = "none"
+
     checks["pipelines"] = {
-        "speech": deps.get("whisper", {}).get("available", False) and has_ffmpeg,
+        "speech": local_pipeline_available or api_available,
+        "speech_backend": speech_backend,
         "faces": deps.get("cv2", {}).get("available", False) and deps.get("insightface", {}).get("available", False),
         "scenes": has_ffmpeg,
     }

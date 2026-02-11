@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """STT (Speech-to-Text) module.
 
 Extracts audio from video and transcribes using Whisper.
@@ -5,14 +7,47 @@ Output: [{start_s, end_s, text}] (sentence-level segments)
 """
 
 import json
+import importlib
+import importlib.util
 import logging
+import os
 import subprocess
 import tempfile
-from dataclasses import asdict, dataclass
+import time
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, Protocol
 
 logger = logging.getLogger(__name__)
+
+
+class SupportsSTTProcessor(Protocol):
+    def process(self, video_path: str | Path) -> list[TranscriptSegment]: ...
+
+
+@dataclass
+class PerfTimings:
+    """Performance timings for STT pipeline stages."""
+    ffmpeg_extract_s: float = 0.0
+    model_load_s: float = 0.0
+    transcribe_s: float = 0.0
+    postprocess_s: float = 0.0
+    total_s: float = 0.0
+
+    def to_dict(self) -> dict[str, float]:
+        return asdict(self)
+
+    def log(self, video_path: str = "", backend: str = "", model_name: str = "", device: str = "") -> None:
+        """Emit a single structured JSON log line with all perf data."""
+        payload = {
+            "event": "stt_perf",
+            "video_path": str(video_path),
+            "backend": backend,
+            "model_name": model_name,
+            "device": device,
+            **self.to_dict(),
+        }
+        logger.info("stt_perf %s", json.dumps(payload, ensure_ascii=False))
 
 
 @dataclass
@@ -22,7 +57,7 @@ class TranscriptSegment:
     end_s: float
     text: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, float | str]:
         return asdict(self)
 
 
@@ -46,7 +81,7 @@ class STTProcessor:
         self.model_name = model_name
         self.language = language
         self.device = device
-        self._model = None
+        self._model: Any = None
 
         if model_name not in self.SUPPORTED_MODELS:
             logger.warning(f"Unknown model '{model_name}', using 'base'")
@@ -58,13 +93,13 @@ class STTProcessor:
             return
 
         try:
-            import whisper
+            whisper = importlib.import_module("whisper")
 
             logger.info(f"Loading Whisper model: {self.model_name}")
 
             device = self.device
             if device == "auto":
-                import torch
+                torch = importlib.import_module("torch")
 
                 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -158,7 +193,11 @@ class STTProcessor:
             if self.language:
                 options["language"] = self.language
 
-            result = self._model.transcribe(str(audio_path), **options)
+            model = self._model
+            if model is None:
+                raise RuntimeError("Whisper model is not loaded")
+
+            result = model.transcribe(str(audio_path), **options)
 
             segments = []
             for seg in result.get("segments", []):
@@ -191,18 +230,44 @@ class STTProcessor:
             List of TranscriptSegment
         """
         video_path = Path(video_path)
+        self._last_perf: PerfTimings | None = None
 
         if not video_path.exists():
             logger.error(f"Video file not found: {video_path}")
             return []
+
+        t_total = time.perf_counter()
+        perf = PerfTimings()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             audio_path = temp_path / "audio.wav"
 
             try:
+                t0 = time.perf_counter()
                 self.extract_audio(video_path, audio_path)
+                perf.ffmpeg_extract_s = round(time.perf_counter() - t0, 3)
+
+                t0 = time.perf_counter()
+                self._load_model()
+                perf.model_load_s = round(time.perf_counter() - t0, 3)
+
+                t0 = time.perf_counter()
                 segments = self.transcribe(audio_path)
+                perf.transcribe_s = round(time.perf_counter() - t0, 3)
+
+                t0 = time.perf_counter()
+                # postprocess is negligible here but measured for completeness
+                perf.postprocess_s = round(time.perf_counter() - t0, 3)
+
+                perf.total_s = round(time.perf_counter() - t_total, 3)
+                self._last_perf = perf
+                perf.log(
+                    video_path=str(video_path),
+                    backend="whisper",
+                    model_name=self.model_name,
+                    device=self.device,
+                )
                 return segments
 
             except FileNotFoundError as e:
@@ -232,7 +297,7 @@ class STTProcessor:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        data = {
+        data: dict[str, object] = {
             "video_path": str(video_path) if video_path else None,
             "segments": [seg.to_dict() for seg in segments],
             "total_segments": len(segments),
@@ -269,3 +334,98 @@ def convert_to_speech_segments(transcript_segments: list[TranscriptSegment]):
         )
         for seg in transcript_segments
     ]
+
+
+def _is_importable(module_name: str) -> bool:
+    return importlib.util.find_spec(module_name) is not None
+
+
+def _create_api_stt_processor(language: str | None, api_key: str | None) -> SupportsSTTProcessor:
+    stt_api_module = importlib.import_module("heimdex_media_pipelines.speech.stt_api")
+    api_processor_cls = getattr(stt_api_module, "APISTTProcessor")
+    return api_processor_cls(language=language, api_key=api_key)
+
+
+def _create_faster_whisper_processor(
+    model_name: str,
+    language: str | None,
+    device: str,
+    compute_type: str,
+    beam_size: int,
+    best_of: int,
+) -> SupportsSTTProcessor:
+    stt_faster_module = importlib.import_module("heimdex_media_pipelines.speech.stt_faster")
+    processor_cls = getattr(stt_faster_module, "FasterWhisperSTTProcessor")
+    return processor_cls(
+        model_name=model_name,
+        language=language,
+        device=device,
+        compute_type=compute_type,
+        beam_size=beam_size,
+        best_of=best_of,
+    )
+
+
+def create_stt_processor(
+    backend: str = "auto",
+    model_name: str = "base",
+    language: str | None = None,
+    device: str = "auto",
+    api_key: str | None = None,
+    compute_type: str = "auto",
+    beam_size: int = 1,
+    best_of: int = 1,
+) -> STTProcessor | SupportsSTTProcessor:
+    backend = backend.lower().strip()
+
+    env_backend = os.getenv("HEIMDEX_STT_BACKEND", "").lower().strip()
+    if env_backend and backend == "auto":
+        backend = env_backend
+
+    valid_backends = {"auto", "local", "api", "faster-whisper", "whisper"}
+    if backend not in valid_backends:
+        raise ValueError(f"Invalid backend '{backend}'. Expected one of: {', '.join(sorted(valid_backends))}")
+
+    has_whisper = _is_importable("whisper")
+    has_torch = _is_importable("torch")
+    has_faster_whisper = _is_importable("faster_whisper")
+    has_openai = _is_importable("openai")
+    has_api_key = bool(api_key or os.getenv("OPENAI_API_KEY"))
+
+    if backend == "whisper" or backend == "local":
+        if not has_whisper:
+            raise ImportError("Local STT backend requires whisper. Install with: pip install openai-whisper")
+        return STTProcessor(model_name=model_name, language=language, device=device)
+
+    if backend == "faster-whisper":
+        if not has_faster_whisper:
+            raise ImportError("faster-whisper backend requires faster-whisper. Install with: pip install faster-whisper")
+        return _create_faster_whisper_processor(
+            model_name=model_name, language=language, device=device,
+            compute_type=compute_type, beam_size=beam_size, best_of=best_of,
+        )
+
+    if backend == "api":
+        if not has_openai:
+            raise ImportError("API STT backend requires openai SDK. Install with: pip install openai")
+        if not has_api_key:
+            raise ImportError("API STT backend requires OPENAI_API_KEY environment variable")
+        return _create_api_stt_processor(language=language, api_key=api_key)
+
+    # auto mode: prefer faster-whisper → openai-whisper → API
+    if has_faster_whisper:
+        return _create_faster_whisper_processor(
+            model_name=model_name, language=language, device=device,
+            compute_type=compute_type, beam_size=beam_size, best_of=best_of,
+        )
+
+    if has_whisper and has_torch:
+        return STTProcessor(model_name=model_name, language=language, device=device)
+
+    if has_openai and has_api_key:
+        return _create_api_stt_processor(language=language, api_key=api_key)
+
+    raise ImportError(
+        "No usable STT backend found. Install faster-whisper (recommended), "
+        "openai-whisper+torch (local), or openai SDK + OPENAI_API_KEY (API)."
+    )
