@@ -93,6 +93,9 @@ def run_pipeline(
     speech_result: Optional[str] = typer.Option(None, "--speech-result", help="Path to speech result JSON"),
     threshold: float = typer.Option(0.3, help="Scene change threshold (0.0-1.0)"),
     keyframe_dir: Optional[str] = typer.Option(None, help="Directory for keyframe JPEGs"),
+    ocr: bool = typer.Option(False, "--ocr/--no-ocr", help="Enable OCR text extraction from keyframes"),
+    ocr_lang: str = typer.Option("korean", "--ocr-lang", help="PaddleOCR language model"),
+    redact_pii_flag: bool = typer.Option(False, "--redact-pii", help="Redact PII in OCR text"),
     out: str = typer.Option(..., help="Output JSON file path"),
 ) -> None:
     """Full pipeline: detect scenes → extract keyframes → assemble documents."""
@@ -121,6 +124,16 @@ def run_pipeline(
         total_duration_ms=total_duration_ms,
         processing_time_s=round(time.time() - t0, 3),
     )
+
+    if ocr and keyframe_dir:
+        from heimdex_media_pipelines.scenes.assembler import enrich_scenes_with_ocr
+
+        result = enrich_scenes_with_ocr(
+            result,
+            keyframe_dir,
+            lang=ocr_lang,
+            redact_pii=redact_pii_flag,
+        )
 
     _write_result(result.model_dump(), out)
     typer.echo(

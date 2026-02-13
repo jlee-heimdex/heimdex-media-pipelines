@@ -17,6 +17,7 @@ import typer
 
 import heimdex_media_pipelines as _pkg
 from heimdex_media_pipelines.faces.cli import app as faces_app
+from heimdex_media_pipelines.ocr.cli import app as ocr_app
 from heimdex_media_pipelines.scenes.cli import app as scenes_app
 from heimdex_media_pipelines.speech.cli import app as speech_app
 
@@ -27,6 +28,7 @@ app = typer.Typer(
 app.add_typer(faces_app, name="faces")
 app.add_typer(scenes_app, name="scenes")
 app.add_typer(speech_app, name="speech")
+app.add_typer(ocr_app, name="ocr")
 
 
 def _check_importable(module_name: str) -> dict[str, object]:
@@ -67,6 +69,7 @@ def doctor(
             "faster_whisper": _check_importable("faster_whisper"),
             "torch": _check_importable("torch"),
             "openai": _check_importable("openai"),
+            "paddleocr": _check_importable("paddleocr"),
             "typer": _check_importable("typer"),
             "pydantic": _check_importable("pydantic"),
         },
@@ -114,6 +117,7 @@ def doctor(
         "speech_backend": speech_backend,
         "faces": deps.get("cv2", {}).get("available", False) and deps.get("insightface", {}).get("available", False),
         "scenes": has_ffmpeg,
+        "ocr": deps.get("paddleocr", {}).get("available", False),
     }
 
     all_deps = {**deps, **exes}

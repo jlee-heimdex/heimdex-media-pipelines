@@ -25,8 +25,13 @@ speech-fast = [
 speech-api = [
     "openai>=1.0",
 ]
+ocr = [
+    "paddleocr>=2.8.0",
+    "paddlepaddle>=2.6.1",
+    "Pillow>=9.0",
+]
 all = [
-    "heimdex-media-pipelines[faces,speech,speech-fast,speech-api]",
+    "heimdex-media-pipelines[faces,speech,speech-fast,speech-api,ocr]",
 ]
 dev = [
     "pytest>=7",
@@ -45,3 +50,6 @@ packages = ["src/heimdex_media_pipelines"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+markers = [
+    "ocr_golden: OCR golden dataset tests (require media + paddleocr)",
+]

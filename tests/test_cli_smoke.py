@@ -37,6 +37,11 @@ def test_speech_cli_importable():
     assert hasattr(mod, "app")
 
 
+def test_ocr_cli_importable():
+    mod = importlib.import_module("heimdex_media_pipelines.ocr.cli")
+    assert hasattr(mod, "app")
+
+
 def test_main_module_runnable():
     """python -m heimdex_media_pipelines --help works."""
     result = subprocess.run(
@@ -124,3 +129,25 @@ def test_speech_pipeline_help():
     assert result.returncode == 0
     assert "--video" in result.stdout
     assert "--out" in result.stdout
+
+
+def test_ocr_pipeline_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "heimdex_media_pipelines", "ocr", "pipeline", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0
+    assert "--scenes-result" in result.stdout
+
+
+def test_ocr_extract_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "heimdex_media_pipelines", "ocr", "extract", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0
+    assert "--image" in result.stdout

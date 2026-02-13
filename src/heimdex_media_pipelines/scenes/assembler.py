@@ -136,3 +136,88 @@ def assemble_scenes(
         scenes=scene_docs,
         processing_time_s=processing_time_s,
     )
+
+
+def enrich_scenes_with_ocr(
+    scene_result: SceneDetectionResult,
+    keyframe_dir: str,
+    *,
+    lang: str = "korean",
+    use_gpu: bool = False,
+    redact_pii: bool = False,
+    max_scenes: int = 50,
+) -> SceneDetectionResult:
+    """Enrich scene documents with OCR text extracted from keyframes.
+
+    This is a purely additive operation - if OCR is unavailable, disabled,
+    or fails, the original scene_result is returned unchanged.
+
+    Args:
+        scene_result: Assembled scene detection result with SceneDocuments.
+        keyframe_dir: Directory containing {scene_id}.jpg keyframe files.
+        lang: PaddleOCR language model (default "korean").
+        use_gpu: Enable GPU inference.
+        redact_pii: If True, redact PII patterns from OCR text.
+        max_scenes: Skip OCR entirely if scene count exceeds this cap.
+
+    Returns:
+        New SceneDetectionResult with OCR fields populated where text was found.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    if len(scene_result.scenes) > max_scenes:
+        logger.info("Skipping OCR: %d scenes exceeds cap of %d", len(scene_result.scenes), max_scenes)
+        return scene_result
+
+    try:
+        from heimdex_media_contracts.ocr.gating import concat_blocks, filter_blocks_by_confidence, gate_ocr_text
+        from heimdex_media_contracts.ocr.schemas import OCRSceneResult
+        from heimdex_media_contracts.scenes.merge import merge_ocr_into_scene
+        from heimdex_media_pipelines.ocr import (
+            create_ocr_engine,
+            safe_keyframe_path,
+            sanitize_ocr_text,
+            validate_keyframe,
+        )
+        from heimdex_media_pipelines.ocr.pii import redact_pii as redact_pii_text
+    except ImportError as e:
+        logger.info("OCR not available: %s", e)
+        return scene_result
+
+    try:
+        engine = create_ocr_engine(lang=lang, use_gpu=use_gpu)
+    except ImportError as e:
+        logger.info("OCR not available: %s", e)
+        return scene_result
+    except RuntimeError as e:
+        logger.warning("OCR engine rejected: %s", e)
+        return scene_result
+    except Exception as e:
+        logger.warning("OCR enrichment unavailable: %s", e)
+        return scene_result
+
+    enriched_scenes: list[SceneDocument] = []
+    for scene in scene_result.scenes:
+        try:
+            keyframe_path = safe_keyframe_path(scene.scene_id, keyframe_dir)
+            if keyframe_path is None or not validate_keyframe(keyframe_path):
+                enriched_scenes.append(scene)
+                continue
+
+            blocks = engine.detect(keyframe_path)
+            filtered = filter_blocks_by_confidence(blocks)
+            text_concat = concat_blocks(filtered)
+            cleaned = sanitize_ocr_text(text_concat)
+            if redact_pii:
+                cleaned = redact_pii_text(cleaned)
+            gated = gate_ocr_text(cleaned)
+
+            ocr_scene = OCRSceneResult(scene_id=scene.scene_id, ocr_text_raw=gated)
+            enriched_scenes.append(merge_ocr_into_scene(scene, ocr_scene))
+        except Exception as e:
+            logger.warning("OCR enrichment failed for scene %s: %s", scene.scene_id, e)
+            enriched_scenes.append(scene)
+
+    return scene_result.model_copy(update={"scenes": enriched_scenes})
