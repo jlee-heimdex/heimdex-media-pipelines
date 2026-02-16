@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install heimdex-media-contracts
-        run: pip install heimdex-media-contracts>=0.3.0
+        run: pip install "heimdex-media-contracts>=0.3.0" || pip install "heimdex-media-contracts @ git+https://github.com/jlee-heimdex/heimdex-media-contracts.git@main"
 
       - name: Install package with dev dependencies
         run: pip install -e ".[dev]"
