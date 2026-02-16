@@ -24,7 +24,10 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest -x --ignore=tests/test_ocr_golden.py -k "not (test_cli_detect_rejects_video_and_keyframes_together or test_cli_detect_requires_video_or_keyframes)"
+        run: pytest -x --ignore=tests/test_ocr_golden.py
+        env:
+          NO_COLOR: "1"
+          TERM: dumb
 
   build-wheel:
     needs: test
