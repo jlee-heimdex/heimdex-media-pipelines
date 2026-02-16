@@ -1,9 +1,10 @@
 """CLI commands for face pipelines."""
 
 import json
+import glob
 import os
 import time
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import typer
 
@@ -12,7 +13,7 @@ import heimdex_media_pipelines as _pkg
 app = typer.Typer(name="faces", help="Face detection, embedding, and registration commands.")
 
 
-def _write_result(data: dict, out: str) -> None:
+def _write_result(data: Mapping[str, Any], out: str) -> None:
     abs_out = os.path.abspath(out)
     os.makedirs(os.path.dirname(abs_out), exist_ok=True)
     tmp_path = abs_out + ".tmp"
@@ -23,19 +24,59 @@ def _write_result(data: dict, out: str) -> None:
 
 @app.command()
 def detect(
-    video: str = typer.Option(..., help="Path to input video file"),
+    video: Optional[str] = typer.Option(None, help="Path to input video file"),
+    keyframes_dir: Optional[str] = typer.Option(None, help="Directory with pre-extracted keyframe JPEGs"),
     fps: float = typer.Option(1.0, help="Sampling rate (frames per second)"),
     min_size: int = typer.Option(40, help="Minimum face size in pixels"),
-    detector: str = typer.Option("scrfd", help="Detector backend: 'scrfd' or 'haar'"),
+    detector: str = typer.Option("auto", help="Detector backend: 'scrfd', 'haar', or 'auto' (prefer scrfd, fallback to haar)"),
     det_size: int = typer.Option(640, help="SCRFD detection input size"),
     ctx_id: int = typer.Option(-1, help="GPU context ID (-1 for CPU)"),
     out: str = typer.Option(..., help="Output JSON file path"),
 ) -> None:
     """Run face detection at sampled timestamps."""
     from heimdex_media_pipelines.faces.sampling import sample_timestamps
-    from heimdex_media_pipelines.faces.detect import detect_faces
+    from heimdex_media_pipelines.faces.detect import detect_faces, detect_faces_from_images
+
+    if (video is None and keyframes_dir is None) or (video is not None and keyframes_dir is not None):
+        raise typer.BadParameter("Provide exactly one of --video or --keyframes-dir")
+
+    if detector == "auto":
+        try:
+            __import__("insightface")
+            detector = "scrfd"
+        except ImportError:
+            detector = "haar"
 
     t0 = time.time()
+    if keyframes_dir is not None:
+        image_paths = sorted(glob.glob(os.path.join(keyframes_dir, "*.jpg")))
+        detections = detect_faces_from_images(
+            image_paths,
+            min_size=min_size,
+            detector=detector,
+            scrfd_det_size=det_size,
+            scrfd_ctx_id=ctx_id,
+        )
+        elapsed = time.time() - t0
+        result = {
+            "schema_version": "1.0",
+            "pipeline_version": _pkg.__version__,
+            "model_version": detector,
+            "source": "keyframes",
+            "keyframes_dir": keyframes_dir,
+            "num_timestamps": len(image_paths),
+            "num_frames_with_faces": sum(1 for d in detections if d.get("bboxes")),
+            "total_faces": sum(len(d.get("bboxes", [])) for d in detections),
+            "detections": detections,
+            "timing_s": round(elapsed, 3),
+        }
+        _write_result(result, out)
+        typer.echo(f"Wrote {out} ({result['total_faces']} faces in {elapsed:.1f}s)")
+        return
+
+    if video is None:
+        raise typer.BadParameter("Provide exactly one of --video or --keyframes-dir")
+
     timestamps = sample_timestamps(video, fps=fps)
     detections = detect_faces(
         video,

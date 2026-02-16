@@ -115,7 +115,7 @@ def doctor(
     checks["pipelines"] = {
         "speech": local_pipeline_available or api_available,
         "speech_backend": speech_backend,
-        "faces": deps.get("cv2", {}).get("available", False) and deps.get("insightface", {}).get("available", False),
+        "faces": deps.get("cv2", {}).get("available", False),  # haar cascade needs only cv2; insightface optional for SCRFD
         "scenes": has_ffmpeg,
         "ocr": deps.get("paddleocr", {}).get("available", False),
     }
