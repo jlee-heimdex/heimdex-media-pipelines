@@ -115,6 +115,21 @@ def _iter_detections(detections_path: str) -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
+def _load_frame_from_video(cap, ts: float):
+    cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000.0)
+    ok, frame = cap.read()
+    if not ok or frame is None:
+        return None
+    return frame
+
+
+def _load_frame_from_image(image_path: str):
+    if not os.path.exists(image_path):
+        return None
+    frame = cv2.imread(image_path)
+    return frame
+
+
 def extract_embeddings(
     video_path: str,
     detections_path: str,
@@ -126,25 +141,32 @@ def extract_embeddings(
     blur_ref: float = 100.0,
     quality_weights: Tuple[float, float, float] = (0.4, 0.3, 0.3),
 ) -> List[Dict[str, Any]]:
-    if not os.path.exists(video_path):
-        raise FileNotFoundError(video_path)
     if not os.path.exists(detections_path):
         raise FileNotFoundError(detections_path)
 
     app = _load_face_app(det_size=det_size, ctx_id=ctx_id)
     rec_model = app.models.get("recognition") if hasattr(app, "models") else None
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Failed to open video: {video_path}")
+    cap = None
+    if os.path.exists(video_path):
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            cap = None
 
     embeddings: List[Dict[str, Any]] = []
     try:
         for row in _iter_detections(detections_path):
+            image_path = row.get("image_path")
             ts = float(row.get("ts", 0.0))
-            cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000.0)
-            ok, frame = cap.read()
-            if not ok or frame is None:
+
+            if image_path:
+                frame = _load_frame_from_image(image_path)
+            elif cap is not None:
+                frame = _load_frame_from_video(cap, ts)
+            else:
+                continue
+
+            if frame is None:
                 continue
 
             frame_h, frame_w = frame.shape[:2]
@@ -212,7 +234,8 @@ def extract_embeddings(
                     }
                 )
     finally:
-        cap.release()
+        if cap is not None:
+            cap.release()
 
     return embeddings
 
