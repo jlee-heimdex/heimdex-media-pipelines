@@ -112,7 +112,7 @@ def embed(
     align: bool = typer.Option(False, help="Use face alignment for embeddings"),
     det_size: int = typer.Option(640, help="SCRFD detection input size"),
     ctx_id: int = typer.Option(-1, help="GPU context ID (-1 for CPU)"),
-    out: str = typer.Option(..., help="Output JSON file path"),
+    out: str = typer.Option(..., help="Output JSONL file path (one embedding per line)"),
 ) -> None:
     """Extract face embeddings from detection results."""
     from heimdex_media_pipelines.faces.embed import extract_embeddings
@@ -128,17 +128,14 @@ def embed(
     )
     elapsed = time.time() - t0
 
-    result = {
-        "schema_version": "1.0",
-        "pipeline_version": _pkg.__version__,
-        "model_version": "buffalo_l",
-        "video_path": video,
-        "detections_path": detections,
-        "num_embeddings": len(embeddings),
-        "embeddings": embeddings,
-        "timing_s": round(elapsed, 3),
-    }
-    _write_result(result, out)
+    # Write JSONL format (one embedding record per line) for Go agent compatibility
+    abs_out = os.path.abspath(out)
+    os.makedirs(os.path.dirname(abs_out), exist_ok=True)
+    tmp_path = abs_out + ".tmp"
+    with open(tmp_path, "w") as f:
+        for emb in embeddings:
+            f.write(json.dumps(emb, ensure_ascii=True) + "\n")
+    os.replace(tmp_path, abs_out)
     typer.echo(f"Wrote {out} ({len(embeddings)} embeddings in {elapsed:.1f}s)")
 
 
