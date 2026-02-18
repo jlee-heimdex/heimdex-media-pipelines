@@ -30,6 +30,8 @@ def detect(
     min_size: int = typer.Option(40, help="Minimum face size in pixels"),
     detector: str = typer.Option("auto", help="Detector backend: 'scrfd', 'haar', or 'auto' (prefer scrfd, fallback to haar)"),
     det_size: int = typer.Option(640, help="SCRFD detection input size"),
+    det_thresh: float = typer.Option(0.7, help="SCRFD detection confidence threshold (0.0-1.0)"),
+    min_det_conf: float = typer.Option(0.0, help="Post-detection minimum confidence filter (0.0-1.0)"),
     ctx_id: int = typer.Option(-1, help="GPU context ID (-1 for CPU)"),
     out: str = typer.Option(..., help="Output JSON file path"),
 ) -> None:
@@ -56,6 +58,8 @@ def detect(
             detector=detector,
             scrfd_det_size=det_size,
             scrfd_ctx_id=ctx_id,
+            scrfd_det_thresh=det_thresh,
+            min_det_conf=min_det_conf,
         )
         elapsed = time.time() - t0
         result = {
@@ -85,6 +89,8 @@ def detect(
         detector=detector,
         scrfd_det_size=det_size,
         scrfd_ctx_id=ctx_id,
+        scrfd_det_thresh=det_thresh,
+        min_det_conf=min_det_conf,
     )
     elapsed = time.time() - t0
 
@@ -108,7 +114,7 @@ def detect(
 def embed(
     video: str = typer.Option(..., help="Path to input video file"),
     detections: str = typer.Option(..., help="Path to detections JSONL file"),
-    q_min: Optional[float] = typer.Option(None, help="Minimum quality threshold"),
+    q_min: Optional[float] = typer.Option(0.25, help="Minimum quality threshold (0.0-1.0)"),
     align: bool = typer.Option(False, help="Use face alignment for embeddings"),
     det_size: int = typer.Option(640, help="SCRFD detection input size"),
     ctx_id: int = typer.Option(-1, help="GPU context ID (-1 for CPU)"),

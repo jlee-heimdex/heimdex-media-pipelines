@@ -24,6 +24,7 @@ def _init_detector(
     detector: str,
     scrfd_det_size: int,
     scrfd_ctx_id: int,
+    scrfd_det_thresh: float = 0.7,
 ) -> Tuple[str, Optional[cv2.CascadeClassifier], Any]:
     detector = detector.lower().strip()
     if detector not in {"haar", "scrfd"}:
@@ -44,7 +45,7 @@ def _init_detector(
     if scrfd_ctx_id >= 0:
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     scrfd_app = FaceAnalysis(name="buffalo_l", providers=providers)
-    scrfd_app.prepare(ctx_id=scrfd_ctx_id, det_size=(scrfd_det_size, scrfd_det_size))
+    scrfd_app.prepare(ctx_id=scrfd_ctx_id, det_size=(scrfd_det_size, scrfd_det_size), det_thresh=scrfd_det_thresh)
     return detector, None, scrfd_app
 
 
@@ -54,6 +55,7 @@ def _detect_on_frame(
     min_size: int,
     cascade: Optional[cv2.CascadeClassifier],
     scrfd_app: Any,
+    min_det_conf: float = 0.0,
 ) -> List[Dict[str, Any]]:
     bboxes: List[Dict[str, Any]] = []
     if detector == "haar":
@@ -72,13 +74,16 @@ def _detect_on_frame(
             for (x, y, w, h), weight in zip(faces, level_weights):
                 if w < min_size or h < min_size:
                     continue
+                conf = float(weight)
+                if conf < min_det_conf:
+                    continue
                 bboxes.append(
                     {
                         "x": int(x),
                         "y": int(y),
                         "w": int(w),
                         "h": int(h),
-                        "det_conf": float(weight),
+                        "det_conf": conf,
                     }
                 )
         else:
@@ -110,13 +115,16 @@ def _detect_on_frame(
             h = y2 - y1
             if w < min_size or h < min_size:
                 continue
+            conf = float(face.det_score)
+            if conf < min_det_conf:
+                continue
             bboxes.append(
                 {
                     "x": int(x1),
                     "y": int(y1),
                     "w": int(w),
                     "h": int(h),
-                    "det_conf": float(face.det_score),
+                    "det_conf": conf,
                 }
             )
     return bboxes
@@ -129,17 +137,15 @@ def detect_faces(
     detector: str = "scrfd",
     scrfd_det_size: int = 640,
     scrfd_ctx_id: int = -1,
+    scrfd_det_thresh: float = 0.7,
+    min_det_conf: float = 0.0,
 ) -> List[Dict[str, Any]]:
-    """Run face detection at provided timestamps.
-
-    Returns a list of {"ts": float, "bboxes": [{x, y, w, h, det_conf}, ...]}.
-    """
     if not os.path.exists(video_path):
         raise FileNotFoundError(video_path)
 
     cap = cv2.VideoCapture(video_path)
 
-    detector, cascade, scrfd_app = _init_detector(detector, scrfd_det_size, scrfd_ctx_id)
+    detector, cascade, scrfd_app = _init_detector(detector, scrfd_det_size, scrfd_ctx_id, scrfd_det_thresh)
 
     results: List[Dict[str, Any]] = []
     try:
@@ -150,7 +156,7 @@ def detect_faces(
                 results.append({"ts": float(ts), "bboxes": []})
                 continue
 
-            bboxes = _detect_on_frame(frame, detector, min_size, cascade, scrfd_app)
+            bboxes = _detect_on_frame(frame, detector, min_size, cascade, scrfd_app, min_det_conf)
 
             results.append({"ts": float(ts), "bboxes": bboxes})
     finally:
@@ -165,12 +171,10 @@ def detect_faces_from_images(
     detector: str = "scrfd",
     scrfd_det_size: int = 640,
     scrfd_ctx_id: int = -1,
+    scrfd_det_thresh: float = 0.7,
+    min_det_conf: float = 0.0,
 ) -> List[Dict[str, Any]]:
-    """Run face detection on provided image paths.
-
-    Returns a list of {"image_path": str, "bboxes": [{x, y, w, h, det_conf}, ...]}.
-    """
-    detector, cascade, scrfd_app = _init_detector(detector, scrfd_det_size, scrfd_ctx_id)
+    detector, cascade, scrfd_app = _init_detector(detector, scrfd_det_size, scrfd_ctx_id, scrfd_det_thresh)
 
     results: List[Dict[str, Any]] = []
     for image_path in image_paths:
@@ -179,7 +183,7 @@ def detect_faces_from_images(
             results.append({"image_path": image_path, "bboxes": []})
             continue
 
-        bboxes = _detect_on_frame(frame, detector, min_size, cascade, scrfd_app)
+        bboxes = _detect_on_frame(frame, detector, min_size, cascade, scrfd_app, min_det_conf)
         results.append({"image_path": image_path, "bboxes": bboxes})
 
     return results
