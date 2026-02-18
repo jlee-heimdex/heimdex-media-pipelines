@@ -53,7 +53,7 @@ def extract_keyframe(
         "-q:v", "2",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(
             f"ffmpeg keyframe extraction failed at {timestamp_ms}ms: "
@@ -104,7 +104,7 @@ def _extract_batch(
         tmp_pattern,
     ]
 
-    timeout = max(30 * len(scenes), 60)
+    timeout = max(120 * len(scenes), 120)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(

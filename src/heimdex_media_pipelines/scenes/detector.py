@@ -24,7 +24,7 @@ def _probe_duration_ms(video_path: str) -> int:
         "-of", "default=noprint_wrappers=1:nokey=1",
         video_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {result.stderr.strip()}")
     return int(float(result.stdout.strip()) * 1000)
