@@ -77,7 +77,7 @@ def assemble_scenes(
     video_id: str,
     scene_boundaries: List[SceneBoundary],
     speech_result_path: Optional[str] = None,
-    pipeline_version: str = "0.3.0",
+    pipeline_version: str = "0.4.0",
     model_version: str = "ffmpeg_scenecut",
     total_duration_ms: int = 0,
     processing_time_s: float = 0.0,

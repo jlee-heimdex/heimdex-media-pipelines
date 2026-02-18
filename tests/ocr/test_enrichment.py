@@ -24,7 +24,7 @@ def _make_result(num_scenes: int = 3) -> SceneDetectionResult:
         for i in range(num_scenes)
     ]
     return SceneDetectionResult(
-        pipeline_version="0.3.0",
+        pipeline_version="0.4.0",
         model_version="ffmpeg_scenecut",
         video_path="/tmp/test.mp4",
         video_id="testvid",

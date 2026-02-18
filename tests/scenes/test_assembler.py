@@ -229,7 +229,7 @@ class TestAssembleScenes:
             speech_result_path=speech_path,
         )
 
-        assert result.pipeline_version == "0.3.0"
+        assert result.pipeline_version == "0.4.0"
 
     def test_start_s_end_s_key_convention(self, tmp_path):
         speech_path = str(tmp_path / "speech.json")
