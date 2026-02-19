@@ -95,6 +95,7 @@ def run_pipeline(
     keyframe_dir: Optional[str] = typer.Option(None, help="Directory for keyframe JPEGs"),
     ocr: bool = typer.Option(False, "--ocr/--no-ocr", help="Enable OCR text extraction from keyframes"),
     ocr_lang: str = typer.Option("korean", "--ocr-lang", help="PaddleOCR language model"),
+    use_gpu: bool = typer.Option(False, "--use-gpu", help="Use GPU for OCR inference"),
     redact_pii_flag: bool = typer.Option(False, "--redact-pii", help="Redact PII in OCR text"),
     out: str = typer.Option(..., help="Output JSON file path"),
 ) -> None:
@@ -132,6 +133,7 @@ def run_pipeline(
             result,
             keyframe_dir,
             lang=ocr_lang,
+            use_gpu=use_gpu,
             redact_pii=redact_pii_flag,
         )
 

@@ -60,6 +60,15 @@ class PaddleOCREngine:
         self._model: Any = None
         self._api_version: int = 0
 
+    def _resolve_gpu(self) -> bool:
+        if not self.use_gpu:
+            return False
+        from heimdex_media_pipelines.device import detect_paddle_gpu
+        available = detect_paddle_gpu()
+        if not available:
+            logger.info("OCR: GPU requested but not available, falling back to CPU")
+        return available
+
     def _load_model(self) -> None:
         if self._model is not None:
             return
@@ -71,10 +80,11 @@ class PaddleOCREngine:
             self._model = paddle_ocr_cls(lang=self.lang)
             self._api_version = 3
         else:
+            resolved_gpu = self._resolve_gpu()
             self._model = paddle_ocr_cls(
                 use_angle_cls=self.use_angle_cls,
                 lang=self.lang,
-                use_gpu=self.use_gpu,
+                use_gpu=resolved_gpu,
                 show_log=False,
             )
             self._api_version = 2
