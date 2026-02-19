@@ -1,11 +1,11 @@
 [project]
 name = "heimdex-media-pipelines"
-version = "0.5.0"
+version = "0.6.0"
 description = "Heavy ML pipelines for Heimdex media processing (face detection, STT, embeddings)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "heimdex-media-contracts>=0.3.0",
+    "heimdex-media-contracts>=0.5.0",
     "opencv-python-headless>=4.8",
     "typer>=0.9",
 ]
