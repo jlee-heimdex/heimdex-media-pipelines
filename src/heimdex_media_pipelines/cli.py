@@ -79,15 +79,29 @@ def doctor(
         },
     }
 
-    # GPU check
-    try:
-        torch = importlib.import_module("torch")
-        checks["gpu"] = {
-            "cuda_available": torch.cuda.is_available(),
-            "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
-        }
-    except ImportError:
-        checks["gpu"] = {"cuda_available": False, "error": "torch not installed"}
+    # GPU check — guarded with a timeout because torch.cuda.is_available() can
+    # hang on Windows when no NVIDIA GPU / CUDA driver is present.
+    def _gpu_check() -> dict[str, object]:
+        try:
+            torch = importlib.import_module("torch")
+            return {
+                "cuda_available": torch.cuda.is_available(),
+                "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+            }
+        except ImportError:
+            return {"cuda_available": False, "error": "torch not installed"}
+        except Exception as exc:
+            return {"cuda_available": False, "error": str(exc)}
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        try:
+            checks["gpu"] = pool.submit(_gpu_check).result(timeout=10)
+        except concurrent.futures.TimeoutError:
+            checks["gpu"] = {"cuda_available": False, "error": "GPU check timed out"}
+
+    from heimdex_media_pipelines.device import get_onnx_provider_names
+    checks["gpu"]["onnx_providers"] = get_onnx_provider_names()
 
     deps: dict[str, dict[str, object]] = checks["dependencies"]
     exes: dict[str, dict[str, object]] = checks["executables"]
