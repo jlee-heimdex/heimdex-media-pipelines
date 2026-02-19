@@ -41,9 +41,11 @@ def _init_detector(
         raise RuntimeError(
             "SCRFD requires insightface. Install with: python -m pip install insightface onnxruntime"
         ) from exc
-    providers = ["CPUExecutionProvider"]
     if scrfd_ctx_id >= 0:
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        from heimdex_media_pipelines.device import detect_onnx_providers
+        providers = detect_onnx_providers()
+    else:
+        providers = ["CPUExecutionProvider"]
     scrfd_app = FaceAnalysis(name="buffalo_l", providers=providers)
     scrfd_app.prepare(ctx_id=scrfd_ctx_id, det_size=(scrfd_det_size, scrfd_det_size), det_thresh=scrfd_det_thresh)
     return detector, None, scrfd_app

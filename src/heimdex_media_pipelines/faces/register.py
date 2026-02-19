@@ -23,9 +23,11 @@ def _load_face_app(det_size: int = 640, ctx_id: int = -1):
         raise RuntimeError(
             "Face embedding requires insightface. Install with: python -m pip install insightface onnxruntime"
         )
-    providers = ["CPUExecutionProvider"]
     if ctx_id >= 0:
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        from heimdex_media_pipelines.device import detect_onnx_providers
+        providers = detect_onnx_providers()
+    else:
+        providers = ["CPUExecutionProvider"]
     app = FaceAnalysis(name="buffalo_l", providers=providers)
     app.prepare(ctx_id=ctx_id, det_size=(det_size, det_size))
     return app
