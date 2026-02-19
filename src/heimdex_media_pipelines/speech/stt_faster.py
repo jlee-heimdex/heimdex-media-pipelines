@@ -55,13 +55,9 @@ class FasterWhisperSTTProcessor:
     def _resolve_device(self) -> str:
         if self.device != "auto":
             return self.device
-        try:
-            torch = importlib.import_module("torch")
-            if torch.cuda.is_available():
-                return "cuda"
-        except ImportError:
-            pass
-        return "cpu"
+        from heimdex_media_pipelines.device import detect_whisper_device
+        device, _ = detect_whisper_device()
+        return device
 
     def _load_model(self) -> float:
         if self._model is not None:
