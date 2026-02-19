@@ -123,6 +123,8 @@ class FasterWhisperSTTProcessor:
 
         logger.info(f"Transcribing audio: {audio_path}")
 
+        if self._model is None:
+            self._load_model()
         model = self._model
         if model is None:
             raise RuntimeError("faster-whisper model is not loaded")
