@@ -78,6 +78,8 @@ class InternVL2CaptionEngine:
             torch_dtype=dtype,
             trust_remote_code=True,
             cache_dir=self.cache_dir,
+            low_cpu_mem_usage=False,
+            device_map=None,
         ).to(device).eval()
 
         self._tokenizer = transformers.AutoTokenizer.from_pretrained(
