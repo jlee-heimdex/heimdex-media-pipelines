@@ -90,6 +90,11 @@ def detect_scenes(
         if end_ms <= start_ms:
             continue
         keyframe_ts = start_ms + (end_ms - start_ms) // 2
+        # Clamp to at least 500ms before EOF — fast-seek near EOF
+        # can overshoot the last decodable frame, causing ffmpeg to
+        # fail with "Could not open encoder before EOF".
+        eof_margin_ms = max(total_duration_ms - 500, 0)
+        keyframe_ts = max(start_ms, min(keyframe_ts, eof_margin_ms))
         scene_id = f"{video_id}_scene_{i:03d}"
         scenes.append(SceneBoundary(
             scene_id=scene_id,

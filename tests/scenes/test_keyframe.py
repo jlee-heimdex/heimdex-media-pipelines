@@ -119,6 +119,40 @@ class TestExtractAllKeyframes:
         assert extract_all_keyframes("/tmp/test.mp4", [], "/tmp/out") == []
 
 
+class TestExtractAllKeyframesResilience:
+    @patch("heimdex_media_pipelines.scenes.keyframe.subprocess.run")
+    def test_skips_failed_frame_continues_rest(self, mock_run, tmp_path):
+        scenes = [
+            _make_boundary("v_scene_000", 0, 0, 5000),
+            _make_boundary("v_scene_001", 1, 5000, 10000),
+            _make_boundary("v_scene_002", 2, 10000, 15000),
+        ]
+        out_dir = str(tmp_path / "keyframes")
+        call_count = 0
+
+        def side_effect(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                m = MagicMock()
+                m.returncode = 1
+                m.stderr = "Could not open encoder before EOF"
+                return m
+            out_path = cmd[-1]
+            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            with open(out_path, "wb") as f:
+                f.write(b"\xff\xd8\xff")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = side_effect
+
+        paths = extract_all_keyframes("/tmp/test.mp4", scenes, out_dir)
+        assert len(paths) == 2
+        assert scenes[0].keyframe_path is not None
+        assert scenes[1].keyframe_path is None
+        assert scenes[2].keyframe_path is not None
+
+
 class TestBatchKeyframesFlag:
     def test_default_false(self):
         with patch.dict(os.environ, {}, clear=True):

@@ -101,6 +101,38 @@ class TestDetectScenes:
         assert len(scenes) == 1
 
 
+class TestEofClamp:
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_last_scene_keyframe_clamped_away_from_eof(self, mock_run):
+        stderr = (
+            "[Parsed_showinfo_1 @ 0x1] n:0 pts:4500 pts_time:4.500000 fmt:yuv420p\n"
+        )
+        mock_run.side_effect = _mock_run_factory("5.000\n", stderr)
+
+        scenes = detect_scenes("/tmp/test.mp4", "vid")
+        last = scenes[-1]
+        assert last.start_ms == 4500
+        assert last.end_ms == 5000
+        unclamped_midpoint = 4500 + (5000 - 4500) // 2
+        assert last.keyframe_timestamp_ms < unclamped_midpoint
+        assert last.keyframe_timestamp_ms <= 5000 - 500
+
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_short_video_keyframe_stays_at_start(self, mock_run):
+        mock_run.side_effect = _mock_run_factory("0.400\n", "")
+
+        scenes = detect_scenes("/tmp/test.mp4", "vid")
+        assert len(scenes) == 1
+        assert scenes[0].keyframe_timestamp_ms >= 0
+
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_normal_scene_unaffected_by_clamp(self, mock_run):
+        mock_run.side_effect = _mock_run_factory("30.0\n", "")
+
+        scenes = detect_scenes("/tmp/test.mp4", "vid")
+        assert scenes[0].keyframe_timestamp_ms == 15000
+
+
 class TestProbeDuration:
     @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
     def test_parses_duration(self, mock_run):

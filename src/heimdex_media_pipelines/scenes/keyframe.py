@@ -195,14 +195,23 @@ def extract_all_keyframes(
 
     for scene in scenes:
         out_path = os.path.join(out_dir, f"{scene.scene_id}.jpg")
-        extract_keyframe(
-            video_path,
-            scene.keyframe_timestamp_ms,
-            out_path,
-            ffmpeg_bin=ffmpeg_bin,
-        )
-        scene.keyframe_path = out_path
-        paths.append(out_path)
+        try:
+            extract_keyframe(
+                video_path,
+                scene.keyframe_timestamp_ms,
+                out_path,
+                ffmpeg_bin=ffmpeg_bin,
+            )
+            scene.keyframe_path = out_path
+            paths.append(out_path)
+        except RuntimeError:
+            logger.warning(
+                "keyframe_skipped scene=%s ts=%d",
+                scene.scene_id,
+                scene.keyframe_timestamp_ms,
+                exc_info=True,
+            )
+            scene.keyframe_path = None
 
     elapsed = time.monotonic() - t0
     logger.info(
