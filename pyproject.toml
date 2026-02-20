@@ -5,7 +5,7 @@ description = "Heavy ML pipelines for Heimdex media processing (face detection, 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "heimdex-media-contracts>=0.5.0",
+    "heimdex-media-contracts>=0.6.0",
     "opencv-python-headless>=4.8",
     "typer>=0.9",
 ]
@@ -30,8 +30,14 @@ ocr = [
     "paddlepaddle>=2.6.1",
     "Pillow>=9.0",
 ]
+vision = [
+    "transformers>=4.40",
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "Pillow>=9.0",
+]
 all = [
-    "heimdex-media-pipelines[faces,speech,speech-fast,speech-api,ocr]",
+    "heimdex-media-pipelines[faces,speech,speech-fast,speech-api,ocr,vision]",
 ]
 dev = [
     "pytest>=7",

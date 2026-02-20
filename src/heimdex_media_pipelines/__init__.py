@@ -6,4 +6,4 @@ pipelines. It depends on heavy libraries: cv2, insightface, whisper, torch, ffmp
 Schemas and pure functions live in ``heimdex-media-contracts``.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.7.0"
