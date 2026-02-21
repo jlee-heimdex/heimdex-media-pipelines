@@ -10,8 +10,14 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_NEW_TOKENS = 64
-DEFAULT_CAPTION_PROMPT = "이 장면을 한 문장으로 설명해주세요."
+DEFAULT_MAX_NEW_TOKENS = 256
+DEFAULT_CAPTION_PROMPT = (
+    "당신은 영상 장면 분석 전문가입니다. "
+    "이 프레임을 보고, 보이는 내용을 한국어로 2~3문장으로 구체적으로 묘사하세요. "
+    "등장하는 사람, 사물, 배경, 행동, 화면에 보이는 텍스트를 빠짐없이 포함하세요. "
+    "이 설명만으로 시청자가 장면을 상상할 수 있어야 합니다. "
+    "반드시 한국어로만 답하세요."
+)
 
 
 @dataclass
@@ -104,7 +110,9 @@ class InternVL2CaptionEngine:
             generation_config = {
                 "max_new_tokens": self.max_new_tokens,
                 "num_beams": 1,
-                "do_sample": False,
+                "do_sample": True,
+                "temperature": 0.3,
+                "repetition_penalty": 1.5,
             }
 
             t0 = time.monotonic()
