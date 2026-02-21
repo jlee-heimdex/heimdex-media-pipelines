@@ -12,25 +12,7 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_NEW_TOKENS = 100
-DEFAULT_CAPTION_PROMPT = (
-    "당신은 영상 편집자를 돕는 캡션 어시스턴트입니다.\n"
-    "입력으로 한 장의 대표 프레임(정지 이미지)이 제공됩니다.\n\n"
-    "목표:\n"
-    "- 편집자가 \"이 장면을 쓸지 말지\" 바로 판단할 수 있게, 장면을 자연스러운 한국어로 짧게 설명하세요.\n"
-    "- 광고 문구처럼 과장하지 말고, 보이는 것만 사실적으로 쓰세요.\n"
-    "- \"이 장면은/나타냅니다/의미합니다/보여줍니다\" 같은 문장 시작은 피하세요.\n"
-    "- 1~2문장, 최대 40자 정도로 간결하게 쓰세요.\n\n"
-    "포함하면 좋은 정보(가능한 경우에만):\n"
-    "- 누가/무엇이 등장하는지(인물 수, 제품, 소품, 장소 느낌)\n"
-    "- 행동/상황(설명, 시연, 대화, 이동, 포장, 계산 등)\n"
-    "- 화면에 보이는 핵심 텍스트(가격, 할인, 쿠폰, 모델명 등)\n"
-    "- 감정/톤(활기, 진지, 웃음 등) — 확실할 때만\n\n"
-    "금지:\n"
-    "- 추측(예: 누군지 특정, 브랜드 확정, 관계 단정) 금지\n"
-    "- 보이지 않는 정보 추가 금지\n"
-    "- 이모지/따옴표/불릿/형식화 금지\n\n"
-    "출력은 캡션 문장만 작성하세요."
-)
+DEFAULT_CAPTION_PROMPT = "이 이미지를 한국어 1~2문장으로 설명하세요."
 
 
 @dataclass
@@ -74,10 +56,17 @@ _CJK_NOISE_RE = re.compile(
 )
 
 
+_FORMULAIC_PREFIX_RE = re.compile(
+    r"^(?:이 (?:장면은|이미지는|사진은|영상은|화면은)\s*)"
+    r"|^(?:이 (?:장면|이미지|사진|영상|화면)(?:에서는?|을|를|의)\s*)"
+)
+
+
 def _clean_caption(text: str) -> str:
     """Remove non-Korean CJK noise and truncate at first degeneration sign."""
     text = _CJK_NOISE_RE.sub("", text)
     text = re.sub(r"\([^)]*[a-zA-Z]{3,}[^)]*\)", "", text)
+    text = _FORMULAIC_PREFIX_RE.sub("", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
     for pattern in (r"\n\s*[-*]\s", r"\n\s*\d+[.)]\s", r"\s*#\S", r"\*\*"):
         match = re.search(pattern, text)
