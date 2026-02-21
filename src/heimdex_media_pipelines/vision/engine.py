@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import importlib
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -10,8 +11,8 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_NEW_TOKENS = 150
-DEFAULT_CAPTION_PROMPT = "이 영상 장면에 보이는 것을 한국어 2~3문장으로 설명하세요."
+DEFAULT_MAX_NEW_TOKENS = 100
+DEFAULT_CAPTION_PROMPT = "이 장면을 한국어로 설명해주세요."
 
 
 @dataclass
@@ -40,6 +41,33 @@ class CaptionPerfTimings:
             **{k: round(v, 3) if isinstance(v, float) else v for k, v in self.to_dict().items()},
         }
         logger.info("caption_perf %s", json.dumps(payload, ensure_ascii=False))
+
+
+# Regex to strip Chinese (CJK Unified), Japanese kana, and stray non-Korean fragments.
+# Keeps: Korean (Hangul), ASCII, basic Latin punctuation, digits, whitespace.
+_CJK_NOISE_RE = re.compile(
+    r"[\u4e00-\u9fff"         # CJK Unified Ideographs (Chinese)
+    r"\u3040-\u309f"          # Hiragana
+    r"\u30a0-\u30ff"          # Katakana
+    r"\u3400-\u4dbf"          # CJK Extension A
+    r"\uf900-\ufaff"          # CJK Compatibility Ideographs
+    r"\U00020000-\U0002a6df"  # CJK Extension B
+    r"]+"
+)
+
+
+def _clean_caption(text: str) -> str:
+    """Remove non-Korean CJK noise and truncate at first degeneration sign."""
+    # Strip Chinese/Japanese characters
+    text = _CJK_NOISE_RE.sub("", text)
+    # Collapse multiple spaces/newlines left by removal
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    # Truncate at markdown-style list items or hashtags (degeneration pattern)
+    for pattern in (r"\n\s*[-*]\s", r"\n\s*\d+[.)]\s", r"\s*#\S"):
+        match = re.search(pattern, text)
+        if match:
+            text = text[:match.start()].rstrip()
+    return text
 
 
 class CaptionEngine(Protocol):
@@ -104,9 +132,8 @@ class InternVL2CaptionEngine:
             generation_config = {
                 "max_new_tokens": self.max_new_tokens,
                 "num_beams": 1,
-                "do_sample": True,
-                "temperature": 0.2,
-                "repetition_penalty": 2.0,
+                "do_sample": False,
+                "repetition_penalty": 1.5,
             }
 
             t0 = time.monotonic()
@@ -114,7 +141,7 @@ class InternVL2CaptionEngine:
                 response = self._model.chat(self._tokenizer, pixel_values, prompt, generation_config)
             elapsed = time.monotonic() - t0
 
-            text = response.strip()[:500]
+            text = _clean_caption(response.strip()[:500])
             return CaptionResult(caption=text, model=self.model_name, inference_s=elapsed)
 
         except Exception as e:
