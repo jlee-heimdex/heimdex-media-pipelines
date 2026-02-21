@@ -5,6 +5,9 @@ import importlib
 import logging
 import re
 import time
+import base64
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -261,9 +264,135 @@ class Florence2CaptionEngine:
             return CaptionResult(model=self.model_name)
 
 
+class LlamaCppCaptionEngine:
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:8089",
+        api_key: str = "",
+        max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+        timeout_s: float = 120.0,
+        max_retries: int = 3,
+        retry_backoff_s: float = 2.0,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.max_new_tokens = max_new_tokens
+        self.timeout_s = timeout_s
+        self.max_retries = max_retries
+        self.retry_backoff_s = retry_backoff_s
+        self.model_name = "llama-qwen2-vl-2b"
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
+
+    def _record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
+
+    def _record_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= 5:
+            self._circuit_open_until = time.monotonic() + 60.0
+            logger.warning("Llama caption circuit breaker opened for 60s")
+
+    def _is_circuit_open(self) -> bool:
+        return time.monotonic() < self._circuit_open_until
+
+    def caption(self, image_path: str | Path, prompt: str = "") -> CaptionResult:
+        if self._is_circuit_open():
+            logger.warning("Llama caption circuit breaker open; skipping HTTP call")
+            return CaptionResult(model=self.model_name)
+
+        if not prompt:
+            prompt = DEFAULT_CAPTION_PROMPT
+
+        t0 = time.monotonic()
+        image_path_obj = Path(image_path)
+
+        try:
+            image_bytes = image_path_obj.read_bytes()
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        except Exception as e:
+            logger.warning("Caption failed for %s: %s", image_path, e)
+            self._record_failure()
+            return CaptionResult(model=self.model_name)
+
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": self.max_new_tokens,
+        }
+
+        body = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        url = f"{self.base_url}/v1/chat/completions"
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                request = urllib.request.Request(url=url, data=body, headers=headers, method="POST")
+                with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+                    status = getattr(response, "status", 200)
+                    response_body = response.read().decode("utf-8")
+
+                if status >= 500:
+                    if attempt < self.max_retries:
+                        time.sleep(self.retry_backoff_s * (2 ** attempt))
+                        continue
+                    logger.warning("Caption failed for %s: HTTP %s", image_path, status)
+                    self._record_failure()
+                    return CaptionResult(model=self.model_name)
+
+                response_json = json.loads(response_body)
+                raw_text = (
+                    response_json.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
+                text = _clean_caption(str(raw_text).strip()[:500])
+                elapsed = time.monotonic() - t0
+                self._record_success()
+                return CaptionResult(caption=text, model=self.model_name, inference_s=elapsed)
+            except urllib.error.HTTPError as e:
+                if 500 <= e.code < 600:
+                    if attempt < self.max_retries:
+                        time.sleep(self.retry_backoff_s * (2 ** attempt))
+                        continue
+                logger.warning("Caption failed for %s: %s", image_path, e)
+                self._record_failure()
+                return CaptionResult(model=self.model_name)
+            except (urllib.error.URLError, TimeoutError) as e:
+                if attempt < self.max_retries:
+                    time.sleep(self.retry_backoff_s * (2 ** attempt))
+                    continue
+                logger.warning("Caption failed for %s: %s", image_path, e)
+                self._record_failure()
+                return CaptionResult(model=self.model_name)
+            except Exception as e:
+                logger.warning("Caption failed for %s: %s", image_path, e)
+                self._record_failure()
+                return CaptionResult(model=self.model_name)
+
+        self._record_failure()
+        return CaptionResult(model=self.model_name)
+
+
 _ENGINE_REGISTRY: dict[str, type] = {
     "internvl2": InternVL2CaptionEngine,
     "florence2": Florence2CaptionEngine,
+    "llama_http": LlamaCppCaptionEngine,
 }
 
 
@@ -272,8 +401,11 @@ def create_caption_engine(
     use_gpu: bool = False,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
     cache_dir: str | None = None,
+    **kwargs: Any,
 ) -> CaptionEngine:
     engine_cls = _ENGINE_REGISTRY.get(model)
     if engine_cls is None:
         raise ValueError(f"Unknown caption model: {model!r}. Available: {sorted(_ENGINE_REGISTRY)}")
+    if model == "llama_http":
+        return engine_cls(max_new_tokens=max_new_tokens, **kwargs)
     return engine_cls(use_gpu=use_gpu, max_new_tokens=max_new_tokens, cache_dir=cache_dir)

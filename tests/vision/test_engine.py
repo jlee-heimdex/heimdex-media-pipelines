@@ -2,6 +2,8 @@ import json
 import logging
 import sys
 import types
+from email.message import Message
+import urllib.error
 
 import pytest
 
@@ -10,6 +12,7 @@ from heimdex_media_pipelines.vision.engine import (
     CaptionResult,
     Florence2CaptionEngine,
     InternVL2CaptionEngine,
+    LlamaCppCaptionEngine,
     create_caption_engine,
 )
 
@@ -298,3 +301,176 @@ def test_lazy_load_model_once_for_both_engines(monkeypatch, tmp_path):
     florence_engine.caption(image_path)
     assert calls["florence_model"] == 1
     assert calls["florence_processor"] == 1
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status = status
+
+    def read(self):
+        return json.dumps(self._payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+
+def test_llama_http_engine_init_stores_params():
+    engine = LlamaCppCaptionEngine(
+        base_url="http://x:8089",
+        api_key="k",
+        max_new_tokens=77,
+        timeout_s=30.5,
+        max_retries=4,
+        retry_backoff_s=1.5,
+    )
+    assert engine.base_url == "http://x:8089"
+    assert engine.api_key == "k"
+    assert engine.max_new_tokens == 77
+    assert engine.timeout_s == 30.5
+    assert engine.max_retries == 4
+    assert engine.retry_backoff_s == 1.5
+
+
+def test_llama_http_caption_success(monkeypatch, tmp_path):
+    image_path = tmp_path / "f.jpg"
+    image_path.write_bytes(b"abc")
+
+    def fake_urlopen(request, timeout):
+        payload = {
+            "choices": [{"message": {"content": "이 장면은 제품을 소개합니다."}}],
+        }
+        return _FakeHTTPResponse(payload, status=200)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    engine = LlamaCppCaptionEngine(base_url="http://x:8089", timeout_s=2.0)
+    result = engine.caption(image_path)
+
+    assert result.caption == "제품을 소개합니다"
+    assert result.model == "llama-qwen2-vl-2b"
+    assert result.inference_s >= 0.0
+
+
+def test_llama_http_caption_http_error_returns_empty(monkeypatch, tmp_path):
+    image_path = tmp_path / "f.jpg"
+    image_path.write_bytes(b"abc")
+
+    def fake_urlopen(request, timeout):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    engine = LlamaCppCaptionEngine(max_retries=0)
+    result = engine.caption(image_path)
+
+    assert result.caption == ""
+    assert result.model == "llama-qwen2-vl-2b"
+    assert result.inference_s == 0.0
+
+
+def test_llama_http_circuit_breaker_opens_after_failures(monkeypatch, tmp_path):
+    image_path = tmp_path / "f.jpg"
+    image_path.write_bytes(b"abc")
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["count"] += 1
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    engine = LlamaCppCaptionEngine(max_retries=0)
+
+    for _ in range(5):
+        result = engine.caption(image_path)
+        assert result.caption == ""
+
+    result = engine.caption(image_path)
+    assert result.caption == ""
+    assert calls["count"] == 5
+
+
+def test_llama_http_circuit_breaker_resets_on_success(monkeypatch, tmp_path):
+    image_path = tmp_path / "f.jpg"
+    image_path.write_bytes(b"abc")
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["count"] += 1
+        if calls["count"] <= 4:
+            raise urllib.error.URLError("connection refused")
+        payload = {"choices": [{"message": {"content": "정상 캡션"}}]}
+        return _FakeHTTPResponse(payload, status=200)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    engine = LlamaCppCaptionEngine(max_retries=0)
+
+    for _ in range(4):
+        engine.caption(image_path)
+    result = engine.caption(image_path)
+
+    assert result.caption == "정상 캡션"
+    assert engine._consecutive_failures == 0
+    assert engine._circuit_open_until == 0.0
+
+
+def test_create_caption_engine_llama_http():
+    engine = create_caption_engine(model="llama_http", base_url="http://x:8089")
+    assert isinstance(engine, LlamaCppCaptionEngine)
+    assert engine.base_url == "http://x:8089"
+
+
+def test_llama_http_retry_on_server_error(monkeypatch, tmp_path):
+    image_path = tmp_path / "f.jpg"
+    image_path.write_bytes(b"abc")
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["count"] += 1
+        if calls["count"] <= 2:
+            raise urllib.error.HTTPError(
+                url="http://x:8089/v1/chat/completions",
+                code=500,
+                msg="server error",
+                hdrs=Message(),
+                fp=None,
+            )
+        payload = {"choices": [{"message": {"content": "성공"}}]}
+        return _FakeHTTPResponse(payload, status=200)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    engine = LlamaCppCaptionEngine(max_retries=3)
+    result = engine.caption(image_path)
+
+    assert result.caption == "성공"
+    assert calls["count"] == 3
+
+
+def test_llama_http_no_retry_on_client_error(monkeypatch, tmp_path):
+    image_path = tmp_path / "f.jpg"
+    image_path.write_bytes(b"abc")
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["count"] += 1
+        raise urllib.error.HTTPError(
+            url="http://x:8089/v1/chat/completions",
+            code=400,
+            msg="bad request",
+            hdrs=Message(),
+            fp=None,
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    engine = LlamaCppCaptionEngine(max_retries=3)
+    result = engine.caption(image_path)
+
+    assert result.caption == ""
+    assert result.model == "llama-qwen2-vl-2b"
+    assert calls["count"] == 1
