@@ -58,16 +58,19 @@ _CJK_NOISE_RE = re.compile(
 
 def _clean_caption(text: str) -> str:
     """Remove non-Korean CJK noise and truncate at first degeneration sign."""
-    # Strip Chinese/Japanese characters
     text = _CJK_NOISE_RE.sub("", text)
-    # Collapse multiple spaces/newlines left by removal
+    text = re.sub(r"\([^)]*[a-zA-Z]{3,}[^)]*\)", "", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
-    # Truncate at markdown-style list items or hashtags (degeneration pattern)
-    for pattern in (r"\n\s*[-*]\s", r"\n\s*\d+[.)]\s", r"\s*#\S"):
+    for pattern in (r"\n\s*[-*]\s", r"\n\s*\d+[.)]\s", r"\s*#\S", r"\*\*"):
         match = re.search(pattern, text)
         if match:
             text = text[:match.start()].rstrip()
-    return text
+    text = re.sub(r"\s*[,.]?\s*$", "", text)
+    if text and text[-1] not in ".!?다요죠니까":
+        last_sent = max(text.rfind(". "), text.rfind("다. "), text.rfind("니다."), text.rfind("요."))
+        if last_sent > len(text) // 3:
+            text = text[:last_sent + 1 + (2 if text[last_sent:last_sent+3] == "다. " else 0)].rstrip()
+    return text.strip()
 
 
 class CaptionEngine(Protocol):
