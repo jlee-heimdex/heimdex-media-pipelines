@@ -28,6 +28,7 @@ def _install_fake_torch(monkeypatch, cuda_available=False):
         float32="f32",
         float16="f16",
         no_grad=lambda: NoGrad(),
+        inference_mode=lambda: NoGrad(),
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 

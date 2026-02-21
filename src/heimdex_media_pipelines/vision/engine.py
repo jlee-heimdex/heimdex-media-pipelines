@@ -147,7 +147,7 @@ class InternVL2CaptionEngine:
             }
 
             t0 = time.monotonic()
-            with torch.no_grad():
+            with torch.inference_mode():
                 response = self._model.chat(self._tokenizer, pixel_values, prompt, generation_config)
             elapsed = time.monotonic() - t0
 
@@ -243,7 +243,7 @@ class Florence2CaptionEngine:
             inputs = {k: v.to(device) for k, v in inputs.items()}
 
             t0 = time.monotonic()
-            with torch.no_grad():
+            with torch.inference_mode():
                 generated_ids = self._model.generate(
                     **inputs,
                     max_new_tokens=self.max_new_tokens,
