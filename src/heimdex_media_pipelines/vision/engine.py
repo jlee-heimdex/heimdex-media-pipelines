@@ -14,8 +14,8 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_NEW_TOKENS = 100
-DEFAULT_CAPTION_PROMPT = "이 이미지를 한국어 1~2문장으로 설명하세요."
+DEFAULT_MAX_NEW_TOKENS = 80
+DEFAULT_CAPTION_PROMPT = "이 장면을 한 문장으로 서술:"
 
 
 @dataclass
@@ -62,11 +62,14 @@ _CJK_NOISE_RE = re.compile(
 _FORMULAIC_PREFIX_RE = re.compile(
     r"^(?:이 (?:장면은|이미지는|사진은|영상은|화면은)\s*)"
     r"|^(?:이 (?:장면|이미지|사진|영상|화면)(?:에서는?|을|를|의)\s*)"
+    r"|^(?:다음은\s*)"
+    r"|^(?:그림에 있는\s*)"
 )
 
 
 def _clean_caption(text: str) -> str:
     """Remove non-Korean CJK noise and truncate at first degeneration sign."""
+    text = text.strip().strip('"').strip("'").strip()
     text = _CJK_NOISE_RE.sub("", text)
     text = re.sub(r"\([^)]*[a-zA-Z]{3,}[^)]*\)", "", text)
     text = _FORMULAIC_PREFIX_RE.sub("", text)
@@ -275,6 +278,9 @@ class LlamaCppCaptionEngine:
         max_retries: int = 3,
         retry_backoff_s: float = 2.0,
         max_image_dim: int = 448,
+        temperature: float = 0.1,
+        repeat_penalty: float = 1.15,
+        presence_penalty: float = 0.6,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -283,6 +289,9 @@ class LlamaCppCaptionEngine:
         self.max_retries = max_retries
         self.retry_backoff_s = retry_backoff_s
         self.max_image_dim = max_image_dim
+        self.temperature = temperature
+        self.repeat_penalty = repeat_penalty
+        self.presence_penalty = presence_penalty
         self.model_name = "llama-qwen2-vl-2b"
         self._consecutive_failures = 0
         self._circuit_open_until = 0.0
@@ -363,6 +372,9 @@ class LlamaCppCaptionEngine:
                 }
             ],
             "max_tokens": self.max_new_tokens,
+            "temperature": self.temperature,
+            "repeat_penalty": self.repeat_penalty,
+            "presence_penalty": self.presence_penalty,
         }
 
         body = json.dumps(payload).encode("utf-8")
