@@ -271,9 +271,10 @@ class LlamaCppCaptionEngine:
         base_url: str = "http://localhost:8089",
         api_key: str = "",
         max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
-        timeout_s: float = 120.0,
+        timeout_s: float = 300.0,
         max_retries: int = 3,
         retry_backoff_s: float = 2.0,
+        max_image_dim: int = 448,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -281,6 +282,7 @@ class LlamaCppCaptionEngine:
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.retry_backoff_s = retry_backoff_s
+        self.max_image_dim = max_image_dim
         self.model_name = "llama-qwen2-vl-2b"
         self._consecutive_failures = 0
         self._circuit_open_until = 0.0
@@ -298,6 +300,36 @@ class LlamaCppCaptionEngine:
     def _is_circuit_open(self) -> bool:
         return time.monotonic() < self._circuit_open_until
 
+    def _maybe_resize(self, image_path: Path) -> bytes:
+        """Resize image if larger than max_image_dim, preserving aspect ratio.
+
+        Returns JPEG bytes. Resizing reduces vision encoder tokens
+        (e.g. 720x1280 → 252x448 cuts tokens from ~1196 to ~144).
+        """
+        import io
+
+        try:
+            PIL_Image = importlib.import_module("PIL.Image")
+            img = PIL_Image.open(image_path)
+            w, h = img.size
+            max_dim = self.max_image_dim
+
+            if max(w, h) > max_dim:
+                if w >= h:
+                    new_w = max_dim
+                    new_h = int(h * max_dim / w)
+                else:
+                    new_h = max_dim
+                    new_w = int(w * max_dim / h)
+                img = img.resize((new_w, new_h), PIL_Image.LANCZOS)
+                logger.debug("Resized %s from %dx%d to %dx%d", image_path.name, w, h, new_w, new_h)
+
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            return buf.getvalue()
+        except Exception:
+            return image_path.read_bytes()
+
     def caption(self, image_path: str | Path, prompt: str = "") -> CaptionResult:
         if self._is_circuit_open():
             logger.warning("Llama caption circuit breaker open; skipping HTTP call")
@@ -310,7 +342,7 @@ class LlamaCppCaptionEngine:
         image_path_obj = Path(image_path)
 
         try:
-            image_bytes = image_path_obj.read_bytes()
+            image_bytes = self._maybe_resize(image_path_obj)
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         except Exception as e:
             logger.warning("Caption failed for %s: %s", image_path, e)
