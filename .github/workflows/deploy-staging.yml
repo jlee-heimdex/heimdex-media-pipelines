@@ -1,0 +1,66 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy pipelines to staging EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script_stop: true
+          command_timeout: 8m
+          script: |
+            set -euo pipefail
+
+            PIPELINES_DIR=/opt/heimdex/heimdex-media-pipelines
+            APP_DIR=/opt/heimdex/dev-heimdex-for-livecommerce
+            LOG=/opt/heimdex/logs/deploy-pipelines-$(date +%Y%m%d-%H%M%S).log
+
+            exec > >(tee -a "$LOG") 2>&1
+            echo "=== Pipelines deploy started at $(date) ==="
+
+            # ---- Sync pipelines repo ----
+            cd "$PIPELINES_DIR"
+            git remote prune origin 2>/dev/null || true
+            git fetch origin +refs/heads/main:refs/remotes/origin/main
+            PREV_HEAD=$(git rev-parse HEAD)
+            git reset --hard origin/main
+            NEW_HEAD=$(git rev-parse HEAD)
+
+            if [ "$PREV_HEAD" = "$NEW_HEAD" ]; then
+              echo "No changes. Skipping restart."
+              exit 0
+            fi
+
+            echo "Updated: $PREV_HEAD -> $NEW_HEAD"
+
+            # ---- Restart workers that mount pipelines ----
+            cd "$APP_DIR"
+            WORKERS="drive-caption-worker drive-ocr-worker drive-stt-worker"
+            for SVC in $WORKERS; do
+              if docker compose ps --services --status running | grep -q "^${SVC}$"; then
+                echo "--- restarting $SVC ---"
+                docker compose restart "$SVC"
+              fi
+            done
+            sleep 5
+
+            # ---- Health check ----
+            API_STATUS=$(curl -sf http://localhost:8000/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null || echo "DOWN")
+            echo "API: $API_STATUS"
+
+            echo "=== Pipelines deploy finished at $(date) ==="
