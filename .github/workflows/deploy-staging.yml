@@ -48,15 +48,14 @@ jobs:
 
             echo "Updated: $PREV_HEAD -> $NEW_HEAD"
 
-            # ---- Restart workers that mount pipelines ----
+            # ---- Restart services that mount pipelines ----
+            # NOTE (2026-02-26): Enrichment workers (STT, OCR, Caption) run on Aircloud+ GPU.
+            # Only drive-worker (discovery + processing) remains on EC2 and mounts pipelines.
             cd "$APP_DIR"
-            WORKERS="drive-caption-worker drive-ocr-worker drive-stt-worker"
-            for SVC in $WORKERS; do
-              if docker compose ps --services --status running | grep -q "^${SVC}$"; then
-                echo "--- restarting $SVC ---"
-                docker compose restart "$SVC"
-              fi
-            done
+            if docker compose ps --services --status running | grep -q '^drive-worker$'; then
+              echo "--- restarting drive-worker ---"
+              docker compose restart drive-worker
+            fi
             sleep 5
 
             # ---- Health check ----
