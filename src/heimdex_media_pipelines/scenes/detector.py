@@ -35,6 +35,7 @@ def detect_scenes(
     video_id: str,
     threshold: float = _DEFAULT_THRESHOLD,
     min_scene_duration_ms: int = 500,
+    max_scene_duration_ms: int = 60_000,
     ffmpeg_bin: Optional[str] = None,
 ) -> List[SceneBoundary]:
     """Detect scene boundaries using ffmpeg's select filter with scene score.
@@ -45,6 +46,9 @@ def detect_scenes(
         threshold: Scene change sensitivity (0.0 = every frame, 1.0 = never).
         min_scene_duration_ms: Minimum scene duration; shorter scenes are merged
             into the previous scene.
+        max_scene_duration_ms: Maximum scene duration; scenes longer than this
+            are split into consecutive sub-scenes at this interval. Set to 0
+            or less to disable splitting.
         ffmpeg_bin: Override ffmpeg binary path.
 
     Returns:
@@ -82,6 +86,16 @@ def detect_scenes(
         if ts - boundaries[-1] >= min_scene_duration_ms:
             boundaries.append(ts)
     boundaries.append(total_duration_ms)
+
+    if max_scene_duration_ms > 0:
+        split_boundaries: List[int] = [boundaries[0]]
+        for boundary in boundaries[1:]:
+            current_start = split_boundaries[-1]
+            while boundary - current_start > max_scene_duration_ms:
+                current_start += max_scene_duration_ms
+                split_boundaries.append(current_start)
+            split_boundaries.append(boundary)
+        boundaries = split_boundaries
 
     scenes: List[SceneBoundary] = []
     for i in range(len(boundaries) - 1):

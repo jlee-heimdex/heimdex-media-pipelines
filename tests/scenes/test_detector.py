@@ -133,6 +133,71 @@ class TestEofClamp:
         assert scenes[0].keyframe_timestamp_ms == 15000
 
 
+class TestMaxSceneDurationSplit:
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_120s_scene_splits_into_two_60s_scenes(self, mock_run):
+        mock_run.side_effect = _mock_run_factory("120.000\n", "")
+
+        scenes = detect_scenes(
+            "/tmp/test.mp4", "vid", max_scene_duration_ms=60_000,
+        )
+
+        assert len(scenes) == 2
+        assert [(s.start_ms, s.end_ms) for s in scenes] == [
+            (0, 60_000),
+            (60_000, 120_000),
+        ]
+        assert [s.scene_id for s in scenes] == ["vid_scene_000", "vid_scene_001"]
+        assert [s.index for s in scenes] == [0, 1]
+        assert [s.keyframe_timestamp_ms for s in scenes] == [30_000, 90_000]
+
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_59s_scene_not_split(self, mock_run):
+        mock_run.side_effect = _mock_run_factory("59.000\n", "")
+
+        scenes = detect_scenes(
+            "/tmp/test.mp4", "vid", max_scene_duration_ms=60_000,
+        )
+
+        assert len(scenes) == 1
+        assert scenes[0].start_ms == 0
+        assert scenes[0].end_ms == 59_000
+
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_180s_scene_splits_into_three_60s_scenes(self, mock_run):
+        mock_run.side_effect = _mock_run_factory("180.000\n", "")
+
+        scenes = detect_scenes(
+            "/tmp/test.mp4", "vid", max_scene_duration_ms=60_000,
+        )
+
+        assert len(scenes) == 3
+        assert [(s.start_ms, s.end_ms) for s in scenes] == [
+            (0, 60_000),
+            (60_000, 120_000),
+            (120_000, 180_000),
+        ]
+        assert [s.scene_id for s in scenes] == [
+            "vid_scene_000",
+            "vid_scene_001",
+            "vid_scene_002",
+        ]
+        assert [s.index for s in scenes] == [0, 1, 2]
+        assert [s.keyframe_timestamp_ms for s in scenes] == [30_000, 90_000, 150_000]
+
+    @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
+    def test_max_scene_duration_zero_disables_split(self, mock_run):
+        mock_run.side_effect = _mock_run_factory("120.000\n", "")
+
+        scenes = detect_scenes(
+            "/tmp/test.mp4", "vid", max_scene_duration_ms=0,
+        )
+
+        assert len(scenes) == 1
+        assert scenes[0].start_ms == 0
+        assert scenes[0].end_ms == 120_000
+
+
 class TestProbeDuration:
     @patch("heimdex_media_pipelines.scenes.detector.subprocess.run")
     def test_parses_duration(self, mock_run):
