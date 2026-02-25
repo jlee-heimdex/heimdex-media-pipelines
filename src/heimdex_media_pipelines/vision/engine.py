@@ -433,7 +433,108 @@ class LlamaCppCaptionEngine:
         return CaptionResult(model=self.model_name)
 
 
+class Qwen2VLCaptionEngine:
+    """Qwen2-VL implementation. Strong multilingual/Korean VLM. Lazy-loads model on first call."""
+
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen2-VL-2B-Instruct",
+        use_gpu: bool = False,
+        max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+        cache_dir: str | None = None,
+    ):
+        self.model_name = model_name
+        self.use_gpu = use_gpu
+        self.max_new_tokens = max_new_tokens
+        self.cache_dir = cache_dir
+        self._model = None
+        self._processor = None
+
+    def _load_model(self) -> None:
+        if self._model is not None:
+            return
+
+        torch = importlib.import_module("torch")
+        transformers = importlib.import_module("transformers")
+
+        device = "cuda" if self.use_gpu and torch.cuda.is_available() else "cpu"
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
+
+        Qwen2VLForConditionalGeneration = getattr(transformers, "Qwen2VLForConditionalGeneration")
+        AutoProcessor = getattr(transformers, "AutoProcessor")
+
+        self._model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self.model_name,
+            torch_dtype=dtype,
+            trust_remote_code=True,
+            cache_dir=self.cache_dir,
+            device_map=None,
+        ).to(device).eval()
+
+        self._processor = AutoProcessor.from_pretrained(
+            self.model_name,
+            trust_remote_code=True,
+            cache_dir=self.cache_dir,
+            min_pixels=256 * 28 * 28,
+            max_pixels=1280 * 28 * 28,
+        )
+
+    def caption(self, image_path: str | Path, prompt: str = "") -> CaptionResult:
+        try:
+            if self._model is None:
+                self._load_model()
+            if self._model is None or self._processor is None:
+                raise RuntimeError("Qwen2-VL model failed to load")
+
+            torch = importlib.import_module("torch")
+            pil_image = importlib.import_module("PIL.Image")
+
+            if not prompt:
+                prompt = DEFAULT_CAPTION_PROMPT
+
+            image = pil_image.open(str(image_path)).convert("RGB")
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ]
+
+            text_input = self._processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            inputs = self._processor(
+                text=[text_input], images=[image], padding=True, return_tensors="pt"
+            )
+            device = next(self._model.parameters()).device
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+
+            t0 = time.monotonic()
+            with torch.inference_mode():
+                output_ids = self._model.generate(
+                    **inputs,
+                    max_new_tokens=self.max_new_tokens,
+                    num_beams=1,
+                    do_sample=False,
+                )
+            elapsed = time.monotonic() - t0
+
+            # Trim input tokens from output
+            generated = output_ids[:, inputs["input_ids"].shape[1]:]
+            raw_text = self._processor.batch_decode(generated, skip_special_tokens=True)[0]
+            text = _clean_caption(raw_text.strip()[:500])
+            return CaptionResult(caption=text, model=self.model_name, inference_s=elapsed)
+
+        except Exception as e:
+            logger.warning("Caption failed for %s: %s", image_path, e)
+            return CaptionResult(model=self.model_name)
+
 _ENGINE_REGISTRY: dict[str, type] = {
+    "qwen2vl": Qwen2VLCaptionEngine,
     "internvl2": InternVL2CaptionEngine,
     "florence2": Florence2CaptionEngine,
     "llama_http": LlamaCppCaptionEngine,
