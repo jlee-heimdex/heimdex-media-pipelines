@@ -35,7 +35,7 @@ def detect_scenes(
     video_id: str,
     threshold: float = _DEFAULT_THRESHOLD,
     min_scene_duration_ms: int = 500,
-    max_scene_duration_ms: int = 60_000,
+    max_scene_duration_ms: int = 45_000,
     ffmpeg_bin: Optional[str] = None,
 ) -> List[SceneBoundary]:
     """Detect scene boundaries using ffmpeg's select filter with scene score.
