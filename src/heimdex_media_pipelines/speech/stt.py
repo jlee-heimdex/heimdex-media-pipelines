@@ -56,8 +56,9 @@ class TranscriptSegment:
     start_s: float
     end_s: float
     text: str
+    speaker_id: Optional[str] = None
 
-    def to_dict(self) -> dict[str, float | str]:
+    def to_dict(self) -> dict[str, float | str | None]:
         return asdict(self)
 
 
@@ -331,6 +332,7 @@ def convert_to_speech_segments(transcript_segments: list[TranscriptSegment]):
             end=seg.end_s,
             text=seg.text,
             confidence=1.0,
+            speaker_id=seg.speaker_id,
         )
         for seg in transcript_segments
     ]

@@ -33,7 +33,7 @@ def test_transcript_segment_dataclass():
     assert seg.text == "hello world"
 
     d = seg.to_dict()
-    assert d == {"start_s": 1.0, "end_s": 2.5, "text": "hello world"}
+    assert d == {"start_s": 1.0, "end_s": 2.5, "text": "hello world", "speaker_id": None}
 
 
 def test_stt_processor_init():
