@@ -12,6 +12,7 @@ from __future__ import annotations
 import gc
 import importlib
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,9 +77,17 @@ class SpeakerDiarizer:
             extra={"model": self.model_name, "device": resolved_device},
         )
 
+        # Explicitly pass cache_dir to avoid relying on TORCH_HOME env var
+        # at runtime.  pyannote defaults to torch.hub.get_dir() which can
+        # point to an unwritable path on some container platforms (Aircloud).
+        # Prefer HF_HOME (set in GPU Dockerfile to /models/huggingface)
+        # where models are pre-downloaded at build time.
+        cache_dir = os.environ.get("HF_HOME") or os.environ.get("TORCH_HOME")
+
         self._pipeline = pyannote_pipeline.from_pretrained(
             self.model_name,
             use_auth_token=self.hf_token,
+            cache_dir=cache_dir,
         ).to(torch.device(resolved_device))
 
         if hasattr(self._pipeline, "_segmentation"):
