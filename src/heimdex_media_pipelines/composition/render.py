@@ -32,9 +32,11 @@ def extract_clip(
     start_ms: int,
     end_ms: int,
 ) -> None:
-    """Stream copy clip segment (near-instant, no re-encode).
+    """Extract clip segment with frame-accurate seeking.
 
-    Uses -ss before -i for fast seek, -c copy for no re-encode.
+    Uses -ss before -i for fast seek, then re-encodes to ensure
+    accurate start point (stream copy can only cut at keyframes,
+    causing frozen frames at non-keyframe seek positions).
     """
     start_s = start_ms / 1000.0
     duration_s = (end_ms - start_ms) / 1000.0
@@ -42,9 +44,10 @@ def extract_clip(
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(start_s),
-        "-t", str(duration_s),
         "-i", input_path,
-        "-c", "copy",
+        "-t", str(duration_s),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:a", "aac", "-b:a", "128k",
         "-avoid_negative_ts", "make_zero",
         output_path,
     ]
