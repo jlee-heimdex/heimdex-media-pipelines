@@ -5,7 +5,7 @@ description = "Heavy ML pipelines for Heimdex media processing (face detection, 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "heimdex-media-contracts>=0.7.0",
+    "heimdex-media-contracts>=0.8.0",
     "opencv-python-headless>=4.8",
     "typer>=0.9",
 ]
