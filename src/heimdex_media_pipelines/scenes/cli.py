@@ -92,6 +92,8 @@ def run_pipeline(
     video_id: str = typer.Option(..., help="Video identifier"),
     speech_result: Optional[str] = typer.Option(None, "--speech-result", help="Path to speech result JSON"),
     threshold: float = typer.Option(0.3, help="Scene change threshold (0.0-1.0)"),
+    split_preset: Optional[str] = typer.Option(None, "--split-preset", help="Splitting preset: default, fine, coarse, visual_only"),
+    split_target_duration_ms: Optional[int] = typer.Option(None, "--split-target-duration-ms", help="Override target scene duration (ms)"),
     keyframe_dir: Optional[str] = typer.Option(None, help="Directory for keyframe JPEGs"),
     ocr: bool = typer.Option(False, "--ocr/--no-ocr", help="Enable OCR text extraction from keyframes"),
     ocr_lang: str = typer.Option("korean", "--ocr-lang", help="PaddleOCR language model"),
@@ -101,15 +103,24 @@ def run_pipeline(
 ) -> None:
     """Full pipeline: detect scenes → extract keyframes → assemble documents."""
     from heimdex_media_pipelines.scenes.assembler import assemble_scenes
-    from heimdex_media_pipelines.scenes.detector import (
-        _probe_duration_ms,
-        detect_scenes,
-    )
+    from heimdex_media_pipelines.scenes.detector import _probe_duration_ms
     from heimdex_media_pipelines.scenes.keyframe import extract_all_keyframes
+    from heimdex_media_pipelines.scenes.splitter import split_scenes
 
     t0 = time.time()
 
-    scenes = detect_scenes(video, video_id, threshold=threshold)
+    overrides: dict = {}
+    if threshold != 0.3:
+        overrides["visual_threshold"] = threshold
+    if split_target_duration_ms is not None:
+        overrides["target_scene_duration_ms"] = split_target_duration_ms
+
+    scenes = split_scenes(
+        video, video_id,
+        preset=split_preset,
+        overrides=overrides or None,
+        speech_result_path=speech_result,
+    )
     total_duration_ms = _probe_duration_ms(video)
 
     if keyframe_dir and scenes:
