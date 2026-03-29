@@ -14,21 +14,35 @@ TAG_MAX_NEW_TOKENS = 200
 _KEYWORD_TAG_LIST = ", ".join(sorted(VLM_KEYWORD_TAGS.keys()))
 _PRODUCT_TAG_LIST = ", ".join(sorted(VLM_PRODUCT_TAGS.keys()))
 
-_PROMPT_WITH_TRANSCRIPT = """이미지와 자막을 보고 다음 형식으로 응답하세요.
+# Few-shot example teaches the model the exact output format.
+# The 2B model needs concrete examples, not abstract instructions.
+_EXAMPLE = """설명: 호스트가 수분크림을 손등에 발라 텍스처를 보여주고 있다
+콘텐츠태그: swatch_test, texture_show
+상품태그: skincare
+상품명: 수분크림"""
 
-자막: {transcript}
+_PROMPT_WITH_TRANSCRIPT = """아래 예시처럼 이미지와 자막을 분석해서 답하세요.
 
-설명: (이 장면을 한국어 한 문장으로 설명)
-콘텐츠태그: (다음 중 해당하는 것만 선택: {keyword_tags})
-상품태그: (다음 중 해당하는 것만 선택: {product_tags})
-상품명: (장면에 보이는 구체적 상품명 1-3개, 없으면 "없음")"""
+[예시]
+{example}
 
-_PROMPT_IMAGE_ONLY = """이미지를 보고 다음 형식으로 응답하세요.
+[자막]
+{transcript}
 
-설명: (이 장면을 한국어 한 문장으로 설명)
-콘텐츠태그: (다음 중 해당하는 것만 선택: {keyword_tags})
-상품태그: (다음 중 해당하는 것만 선택: {product_tags})
-상품명: (장면에 보이는 구체적 상품명 1-3개, 없으면 "없음")"""
+[답변]
+설명:"""
+
+_PROMPT_IMAGE_ONLY = """아래 예시처럼 이미지를 분석해서 답하세요.
+
+[예시]
+{example}
+
+[답변]
+설명:"""
+
+_TAG_SUFFIX = """
+콘텐츠태그 선택지: {keyword_tags}
+상품태그 선택지: {product_tags}"""
 
 
 def build_tag_prompt(
@@ -48,17 +62,23 @@ def build_tag_prompt(
     """
     transcript_trimmed = transcript.strip()[:max_transcript_chars]
 
-    if transcript_trimmed:
-        return _PROMPT_WITH_TRANSCRIPT.format(
-            transcript=transcript_trimmed,
-            keyword_tags=_KEYWORD_TAG_LIST,
-            product_tags=_PRODUCT_TAG_LIST,
-        )
-
-    return _PROMPT_IMAGE_ONLY.format(
+    # Build the tag selection reference (appended as system context)
+    tag_ref = _TAG_SUFFIX.format(
         keyword_tags=_KEYWORD_TAG_LIST,
         product_tags=_PRODUCT_TAG_LIST,
     )
+
+    if transcript_trimmed:
+        prompt = _PROMPT_WITH_TRANSCRIPT.format(
+            example=_EXAMPLE,
+            transcript=transcript_trimmed,
+        )
+    else:
+        prompt = _PROMPT_IMAGE_ONLY.format(
+            example=_EXAMPLE,
+        )
+
+    return prompt + tag_ref
 
 
 def get_tag_max_tokens() -> int:
