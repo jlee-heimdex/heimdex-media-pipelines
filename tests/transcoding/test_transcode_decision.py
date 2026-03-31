@@ -4,7 +4,7 @@ from heimdex_media_pipelines.transcoding.proxy import make_transcode_decision
 
 def _probe(*, width=1920, height=1080, codec="h264", bitrate=3000, has_audio=True):
     return ProbeResult(
-        width=width, height=height, codec_name=codec,
+        width=width, height=height, frame_rate=30.0, codec_name=codec,
         bitrate_kbps=bitrate, duration_ms=60000, has_audio=has_audio,
     )
 
