@@ -37,11 +37,7 @@ class TestDetectOnnxProviders:
             mock_platform.system.return_value = "Darwin"
             mock_platform.machine.return_value = "arm64"
 
-            import importlib
-            import heimdex_media_pipelines.device as dev
-            importlib.reload(dev)
-            result = dev.detect_onnx_providers()
-            importlib.reload(dev)
+            result = detect_onnx_providers()
 
         assert len(result) == 2
         assert result[0][0] == "CoreMLExecutionProvider"
@@ -60,11 +56,7 @@ class TestDetectOnnxProviders:
             mock_platform.system.return_value = "Windows"
             mock_platform.machine.return_value = "AMD64"
 
-            import importlib
-            import heimdex_media_pipelines.device as dev
-            importlib.reload(dev)
-            result = dev.detect_onnx_providers()
-            importlib.reload(dev)
+            result = detect_onnx_providers()
 
         assert result == ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
@@ -79,11 +71,7 @@ class TestDetectOnnxProviders:
             mock_platform.system.return_value = "Windows"
             mock_platform.machine.return_value = "AMD64"
 
-            import importlib
-            import heimdex_media_pipelines.device as dev
-            importlib.reload(dev)
-            result = dev.detect_onnx_providers()
-            importlib.reload(dev)
+            result = detect_onnx_providers()
 
         assert result == ["DmlExecutionProvider", "CPUExecutionProvider"]
 
@@ -95,11 +83,7 @@ class TestDetectOnnxProviders:
             mock_platform.system.return_value = "Linux"
             mock_platform.machine.return_value = "x86_64"
 
-            import importlib
-            import heimdex_media_pipelines.device as dev
-            importlib.reload(dev)
-            result = dev.detect_onnx_providers()
-            importlib.reload(dev)
+            result = detect_onnx_providers()
 
         assert result == ["CPUExecutionProvider"]
 
@@ -114,11 +98,7 @@ class TestDetectOnnxProviders:
             mock_platform.system.return_value = "Darwin"
             mock_platform.machine.return_value = "x86_64"
 
-            import importlib
-            import heimdex_media_pipelines.device as dev
-            importlib.reload(dev)
-            result = dev.detect_onnx_providers()
-            importlib.reload(dev)
+            result = detect_onnx_providers()
 
         assert len(result) == 2
         assert result[0][0] == "CoreMLExecutionProvider"
@@ -198,11 +178,7 @@ class TestDetectPaddleGpu:
              patch.dict("sys.modules", {"paddle": None}):
             mock_platform.system.return_value = "Windows"
 
-            import importlib
-            import heimdex_media_pipelines.device as dev
-            importlib.reload(dev)
-            result = dev.detect_paddle_gpu()
-            importlib.reload(dev)
+            result = detect_paddle_gpu()
         assert result is False
 
     def test_paddle_cpu_only(self):
