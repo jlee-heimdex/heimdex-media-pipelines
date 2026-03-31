@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from heimdex_media_contracts.tags.vocabulary import VLM_KEYWORD_TAGS, VLM_PRODUCT_TAGS
 
-TAG_MAX_NEW_TOKENS = 200
+TAG_MAX_NEW_TOKENS = 256
 
 _KEYWORD_TAG_LIST = ", ".join(sorted(VLM_KEYWORD_TAGS.keys()))
 _PRODUCT_TAG_LIST = ", ".join(sorted(VLM_PRODUCT_TAGS.keys()))
@@ -19,7 +19,8 @@ _PRODUCT_TAG_LIST = ", ".join(sorted(VLM_PRODUCT_TAGS.keys()))
 _EXAMPLE = """설명: 호스트가 수분크림을 손등에 발라 텍스처를 보여주고 있다
 콘텐츠태그: swatch_test, texture_show
 상품태그: skincare
-상품명: 수분크림"""
+상품명: 수분크림
+AI태그: 수분크림, 텍스처 시연, 손등 발색, 촉촉한 제형"""
 
 _TAG_REF = """
 [태그 선택지]
