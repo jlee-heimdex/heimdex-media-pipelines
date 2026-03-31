@@ -114,8 +114,10 @@ class TestExtractClip:
         assert "5.0" == args[args.index("-ss") + 1]
         assert "-t" in args
         assert "10.0" == args[args.index("-t") + 1]
-        assert "-c" in args
-        assert "copy" == args[args.index("-c") + 1]
+        assert "-c:v" in args
+        assert "libx264" == args[args.index("-c:v") + 1]
+        assert "-c:a" in args
+        assert "aac" == args[args.index("-c:a") + 1]
         assert "-i" in args
         assert "/input.mp4" == args[args.index("-i") + 1]
 
