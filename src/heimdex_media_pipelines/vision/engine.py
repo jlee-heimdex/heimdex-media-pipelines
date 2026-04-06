@@ -458,18 +458,18 @@ class Qwen2VLCaptionEngine:
         transformers = importlib.import_module("transformers")
 
         device = "cuda" if self.use_gpu and torch.cuda.is_available() else "cpu"
-        is_awq = "awq" in self.model_name.lower()
+        is_quantized = any(q in self.model_name.lower() for q in ("awq", "gptq"))
 
-        # Qwen2.5-VL uses a different model class; use Auto class for compatibility
+        # Qwen2.5-VL uses a different model class than Qwen2-VL
         is_qwen25 = "qwen2.5" in self.model_name.lower()
         if is_qwen25:
-            ModelClass = getattr(transformers, "AutoModelForVision2Seq")
+            ModelClass = getattr(transformers, "Qwen2_5_VLForConditionalGeneration")
         else:
             ModelClass = getattr(transformers, "Qwen2VLForConditionalGeneration")
         AutoProcessor = getattr(transformers, "AutoProcessor")
 
-        if is_awq and device == "cuda":
-            # AWQ quantized models use device_map="auto" for automatic placement
+        if is_quantized and device == "cuda":
+            # Quantized models (AWQ/GPTQ) use device_map="auto"
             self._model = ModelClass.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
