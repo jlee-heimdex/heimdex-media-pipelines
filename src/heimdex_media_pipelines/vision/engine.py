@@ -458,21 +458,37 @@ class Qwen2VLCaptionEngine:
         transformers = importlib.import_module("transformers")
 
         device = "cuda" if self.use_gpu and torch.cuda.is_available() else "cpu"
-        is_quantized = any(q in self.model_name.lower() for q in ("awq", "gptq"))
+        name_lower = self.model_name.lower()
+        is_pre_quantized = any(q in name_lower for q in ("awq", "gptq"))
+        is_large_model = any(s in name_lower for s in ("7b", "8b", "13b", "14b"))
 
         # Qwen2.5-VL uses a different model class than Qwen2-VL
-        is_qwen25 = "qwen2.5" in self.model_name.lower()
+        is_qwen25 = "qwen2.5" in name_lower
         if is_qwen25:
             ModelClass = getattr(transformers, "Qwen2_5_VLForConditionalGeneration")
         else:
             ModelClass = getattr(transformers, "Qwen2VLForConditionalGeneration")
         AutoProcessor = getattr(transformers, "AutoProcessor")
 
-        if is_quantized and device == "cuda":
-            # Quantized models (AWQ/GPTQ) use device_map="auto"
+        if is_pre_quantized and device == "cuda":
+            # Pre-quantized models (AWQ/GPTQ) use device_map="auto"
             self._model = ModelClass.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
+                trust_remote_code=True,
+                cache_dir=self.cache_dir,
+                device_map="auto",
+            ).eval()
+        elif is_large_model and device == "cuda":
+            # Large models use bitsandbytes 4-bit quantization to fit in VRAM
+            BitsAndBytesConfig = getattr(transformers, "BitsAndBytesConfig")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+            )
+            self._model = ModelClass.from_pretrained(
+                self.model_name,
+                quantization_config=bnb_config,
                 trust_remote_code=True,
                 cache_dir=self.cache_dir,
                 device_map="auto",
