@@ -458,18 +458,29 @@ class Qwen2VLCaptionEngine:
         transformers = importlib.import_module("transformers")
 
         device = "cuda" if self.use_gpu and torch.cuda.is_available() else "cpu"
-        dtype = torch.bfloat16 if device == "cuda" else torch.float32
+        is_awq = "awq" in self.model_name.lower()
 
         Qwen2VLForConditionalGeneration = getattr(transformers, "Qwen2VLForConditionalGeneration")
         AutoProcessor = getattr(transformers, "AutoProcessor")
 
-        self._model = Qwen2VLForConditionalGeneration.from_pretrained(
-            self.model_name,
-            torch_dtype=dtype,
-            trust_remote_code=True,
-            cache_dir=self.cache_dir,
-            device_map=None,
-        ).to(device).eval()
+        if is_awq and device == "cuda":
+            # AWQ quantized models use device_map="auto" for automatic placement
+            self._model = Qwen2VLForConditionalGeneration.from_pretrained(
+                self.model_name,
+                torch_dtype=torch.float16,
+                trust_remote_code=True,
+                cache_dir=self.cache_dir,
+                device_map="auto",
+            ).eval()
+        else:
+            dtype = torch.bfloat16 if device == "cuda" else torch.float32
+            self._model = Qwen2VLForConditionalGeneration.from_pretrained(
+                self.model_name,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+                cache_dir=self.cache_dir,
+                device_map=None,
+            ).to(device).eval()
 
         self._processor = AutoProcessor.from_pretrained(
             self.model_name,
@@ -546,6 +557,7 @@ def create_caption_engine(
     use_gpu: bool = False,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
     cache_dir: str | None = None,
+    model_name: str | None = None,
     **kwargs: Any,
 ) -> CaptionEngine:
     engine_cls = _ENGINE_REGISTRY.get(model)
@@ -553,4 +565,7 @@ def create_caption_engine(
         raise ValueError(f"Unknown caption model: {model!r}. Available: {sorted(_ENGINE_REGISTRY)}")
     if model == "llama_http":
         return engine_cls(max_new_tokens=max_new_tokens, **kwargs)
-    return engine_cls(use_gpu=use_gpu, max_new_tokens=max_new_tokens, cache_dir=cache_dir)
+    init_kwargs: dict[str, Any] = dict(use_gpu=use_gpu, max_new_tokens=max_new_tokens, cache_dir=cache_dir)
+    if model_name:
+        init_kwargs["model_name"] = model_name
+    return engine_cls(**init_kwargs)

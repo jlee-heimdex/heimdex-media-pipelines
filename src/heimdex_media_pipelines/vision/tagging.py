@@ -18,7 +18,7 @@ import random
 
 from heimdex_media_contracts.tags.vocabulary import VLM_KEYWORD_TAGS, VLM_PRODUCT_TAGS
 
-TAG_MAX_NEW_TOKENS = 256
+TAG_MAX_NEW_TOKENS = 512
 
 _KEYWORD_TAG_LIST = ", ".join(sorted(VLM_KEYWORD_TAGS.keys()))
 _PRODUCT_TAG_LIST = ", ".join(sorted(VLM_PRODUCT_TAGS.keys()))
