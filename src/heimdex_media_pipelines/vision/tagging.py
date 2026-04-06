@@ -4,9 +4,9 @@ Builds prompts that instruct the VLM to produce both a natural language
 caption and structured tags in a single inference pass.  The output
 format is line-based (not JSON) for reliability with small models.
 
-IMPORTANT: The 2B VLM (Qwen2-VL-2B-Instruct) requires concrete few-shot
+IMPORTANT: The VLM (Qwen2.5-VL-7B-Instruct) benefits from concrete few-shot
 examples to produce structured multi-line output.  Abstract format specs
-cause the model to generate only the caption and stop.  Use 3+ diverse
+can cause the model to generate only the caption and stop.  Use 3+ diverse
 examples from different categories and randomly sample one per request
 to prevent single-example poisoning (hallucinating one product across
 all videos).

@@ -438,7 +438,7 @@ class Qwen2VLCaptionEngine:
 
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen2-VL-2B-Instruct",
+        model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
         use_gpu: bool = False,
         max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
         cache_dir: str | None = None,
