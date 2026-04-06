@@ -460,10 +460,12 @@ class Qwen2VLCaptionEngine:
         device = "cuda" if self.use_gpu and torch.cuda.is_available() else "cpu"
         is_awq = "awq" in self.model_name.lower()
 
-        # Qwen2.5-VL uses a different model class than Qwen2-VL
+        # Qwen2.5-VL uses a different model class; use Auto class for compatibility
         is_qwen25 = "qwen2.5" in self.model_name.lower()
-        model_cls_name = "Qwen2_5_VLForConditionalGeneration" if is_qwen25 else "Qwen2VLForConditionalGeneration"
-        ModelClass = getattr(transformers, model_cls_name)
+        if is_qwen25:
+            ModelClass = getattr(transformers, "AutoModelForVision2Seq")
+        else:
+            ModelClass = getattr(transformers, "Qwen2VLForConditionalGeneration")
         AutoProcessor = getattr(transformers, "AutoProcessor")
 
         if is_awq and device == "cuda":
