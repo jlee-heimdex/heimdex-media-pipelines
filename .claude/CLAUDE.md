@@ -73,7 +73,7 @@ src/heimdex_media_pipelines/
 | `speech-api` | openai | Cloud-based STT |
 | `diarization` | pyannote-audio 3.3.2, torch | Speaker identification |
 | `ocr` | paddleocr, paddlepaddle | On-screen text extraction |
-| `vision` | transformers, torch, torchvision | Image understanding |
+| `vision` | transformers, torch, torchvision, autoawq | Image understanding (Qwen2.5-VL-7B-AWQ default) |
 
 ## GPU / Cross-Platform Detection
 

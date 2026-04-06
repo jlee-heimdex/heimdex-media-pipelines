@@ -460,12 +460,15 @@ class Qwen2VLCaptionEngine:
         device = "cuda" if self.use_gpu and torch.cuda.is_available() else "cpu"
         is_awq = "awq" in self.model_name.lower()
 
-        Qwen2VLForConditionalGeneration = getattr(transformers, "Qwen2VLForConditionalGeneration")
+        # Qwen2.5-VL uses a different model class than Qwen2-VL
+        is_qwen25 = "qwen2.5" in self.model_name.lower()
+        model_cls_name = "Qwen2_5_VLForConditionalGeneration" if is_qwen25 else "Qwen2VLForConditionalGeneration"
+        ModelClass = getattr(transformers, model_cls_name)
         AutoProcessor = getattr(transformers, "AutoProcessor")
 
         if is_awq and device == "cuda":
             # AWQ quantized models use device_map="auto" for automatic placement
-            self._model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self._model = ModelClass.from_pretrained(
                 self.model_name,
                 torch_dtype=torch.float16,
                 trust_remote_code=True,
@@ -474,7 +477,7 @@ class Qwen2VLCaptionEngine:
             ).eval()
         else:
             dtype = torch.bfloat16 if device == "cuda" else torch.float32
-            self._model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self._model = ModelClass.from_pretrained(
                 self.model_name,
                 torch_dtype=dtype,
                 trust_remote_code=True,
