@@ -35,11 +35,11 @@ ocr = [
     "Pillow>=9.0",
 ]
 vision = [
-    "transformers>=4.45,<5",
+    "transformers>=4.46,<5",
     "torch>=2.0",
     "torchvision>=0.15",
     "Pillow>=9.0",
-    "autoawq>=0.2.0",
+    "accelerate>=0.26.0",
 ]
 composition = []
 all = [
