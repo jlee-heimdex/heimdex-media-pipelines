@@ -77,7 +77,25 @@ class PaddleOCREngine:
         paddle_ocr_cls = getattr(paddleocr_module, "PaddleOCR")
 
         if hasattr(paddle_ocr_cls, "predict"):
-            self._model = paddle_ocr_cls(lang=self.lang)
+            # PaddleOCR 3.x enables a document preprocessing pipeline by
+            # default (orientation classify, unwarping, textline orientation).
+            # For video frames this rewrites the canvas before detection, so
+            # `dt_polys` come back in the *preprocessed* coordinate system
+            # while `rec_texts` are still correct — which shows up as
+            # "text is right but the blur box is shifted". Disable them so
+            # detection polygons stay 1:1 with the input frame.
+            kwargs: dict = {"lang": self.lang}
+            for flag in (
+                "use_doc_orientation_classify",
+                "use_doc_unwarping",
+                "use_textline_orientation",
+            ):
+                kwargs[flag] = False
+            try:
+                self._model = paddle_ocr_cls(**kwargs)
+            except TypeError:
+                # Older 3.x builds may not accept one or more of these flags.
+                self._model = paddle_ocr_cls(lang=self.lang)
             self._api_version = 3
         else:
             resolved_gpu = self._resolve_gpu()
