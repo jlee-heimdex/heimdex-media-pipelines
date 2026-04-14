@@ -84,10 +84,15 @@ def test_pipeline_processes_synthetic_video(synthetic_video: Path, tmp_path: Pat
     assert summary == {"license_plate": 3}
 
     manifest = result.to_manifest()
-    assert manifest["schema_version"] == "1"
+    assert manifest["schema_version"] == "2"
     assert manifest["video"]["frame_count"] == 15
     assert manifest["summary"] == {"license_plate": 3}
     assert len(manifest["detections"]) == 3
+    # v2 manifests include a placeholder mask_s3_keys field that the
+    # worker populates after uploading each BlurResult.mask_paths entry.
+    assert manifest["mask_s3_keys"] is None
+    # No masks requested — mask_paths stays empty.
+    assert result.mask_paths == {}
 
 
 def test_pipeline_no_detector_no_owl(synthetic_video: Path, tmp_path: Path):

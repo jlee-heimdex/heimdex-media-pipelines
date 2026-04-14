@@ -69,8 +69,14 @@ def test_blur_result_summary():
     )
     assert r.summary() == {"face": 2, "license_plate": 1}
     manifest = r.to_manifest()
-    assert manifest["schema_version"] == "1"
+    # v0.10 bumped the manifest schema to "2" so per-category mask
+    # layers can be referenced via mask_s3_keys. The pipeline always
+    # writes "2"; contracts still accepts "1" for historical re-reads.
+    assert manifest["schema_version"] == "2"
     assert manifest["video"]["frame_count"] == 30
     assert manifest["summary"]["face"] == 2
     assert len(manifest["detections"]) == 3
     assert manifest["timing"]["avg_fps"] > 0
+    # Pipeline leaves this as None; the worker fills it in after S3
+    # upload.
+    assert manifest["mask_s3_keys"] is None

@@ -13,6 +13,13 @@ Public surface:
 """
 
 from heimdex_media_pipelines.blur.config import BlurConfig, DetectionRecord, BlurResult
+from heimdex_media_pipelines.blur.masks import (
+    BlurProgressEvent,
+    CategoryMaskAggregator,
+    CategoryMaskWriter,
+    ProgressCallback,
+    ProgressThrottler,
+)
 from heimdex_media_pipelines.blur.pipeline import BlurPipeline
 from heimdex_media_pipelines.blur.primitives import (
     apply_mosaic_blur,
@@ -27,10 +34,15 @@ from heimdex_media_pipelines.blur.queries import (
 __all__ = [
     "BlurConfig",
     "BlurPipeline",
+    "BlurProgressEvent",
     "BlurResult",
+    "CategoryMaskAggregator",
+    "CategoryMaskWriter",
     "DetectionRecord",
     "DEFAULT_OWL_QUERIES",
     "DIRECT_BLUR_CATEGORIES",
+    "ProgressCallback",
+    "ProgressThrottler",
     "label_to_category",
     "apply_mosaic_blur",
     "apply_mosaic_blur_norm",

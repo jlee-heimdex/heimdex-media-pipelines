@@ -25,6 +25,10 @@ from heimdex_media_pipelines.blur.config import (
     BlurResult,
     DetectionRecord,
 )
+from heimdex_media_pipelines.blur.masks import (
+    CategoryMaskAggregator,
+    ProgressThrottler,
+)
 from heimdex_media_pipelines.blur.owlv2 import Detector
 from heimdex_media_pipelines.blur.primitives import (
     apply_mosaic_blur,
@@ -159,17 +163,43 @@ class BlurPipeline:
             fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            total_frames_hint = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
             writer = self._open_writer(out_path, fps, width, height)
             try:
-                result = self._run_loop(
-                    cap=cap,
-                    writer=writer,
-                    fps=fps,
-                    width=width,
-                    height=height,
-                    detect_on_frame=_detect_on_frame,
-                )
+                # Mask aggregator is only live when the caller opted in.
+                # Contextmanaged so ffmpeg subprocesses are always
+                # flushed and waited on — even when an exception tears
+                # down the frame loop halfway through a video.
+                mask_cm: CategoryMaskAggregator | None = None
+                if self._config.emit_masks:
+                    assert self._config.mask_dir is not None  # enforced in __post_init__
+                    mask_cm = CategoryMaskAggregator(
+                        mask_dir=self._config.mask_dir,
+                        width=width,
+                        height=height,
+                        fps=fps,
+                        categories=self._config.categories,
+                    )
+                if mask_cm is not None:
+                    mask_cm.__enter__()
+                try:
+                    result = self._run_loop(
+                        cap=cap,
+                        writer=writer,
+                        fps=fps,
+                        width=width,
+                        height=height,
+                        detect_on_frame=_detect_on_frame,
+                        mask_aggregator=mask_cm,
+                        total_frames_hint=total_frames_hint,
+                    )
+                finally:
+                    if mask_cm is not None:
+                        mask_cm.__exit__(None, None, None)
+                        result_mask_paths = mask_cm.mask_paths
+                    else:
+                        result_mask_paths = {}
             finally:
                 writer.release()
         finally:
@@ -180,6 +210,7 @@ class BlurPipeline:
         result.fps = fps
         result.width = width
         result.height = height
+        result.mask_paths = result_mask_paths
         return result
 
     # ----- internals -----
@@ -208,8 +239,13 @@ class BlurPipeline:
         width: int,
         height: int,
         detect_on_frame: Any,
+        mask_aggregator: CategoryMaskAggregator | None = None,
+        total_frames_hint: int = 0,
     ) -> BlurResult:
         cfg = self._config
+
+        progress = ProgressThrottler(cfg.progress_callback)
+        progress.emit("initializing", 0.0, "loading detectors")
 
         do_faces = cfg.blur_faces
         if do_faces:
@@ -229,6 +265,11 @@ class BlurPipeline:
         owl_total_ms = 0.0
         owl_infer_count = 0
         t_start = time.time()
+
+        # Progress model: 0-2% initializing, 2-95% detecting/encoding,
+        # 95-100% finalizing. We emit inside the frame loop at most
+        # once per ~1% change (throttled in ProgressThrottler).
+        progress.emit("detecting", 2.0, f"processing {total_frames_hint or '?'} frames")
 
         while True:
             ok, frame = cap.read()
@@ -338,7 +379,42 @@ class BlurPipeline:
                     )
 
             writer.write(frame)
+
+            # ---- per-category mask painting ----
+            if mask_aggregator is not None:
+                regions_by_category: dict[str, list[tuple[int, int, int, int]]] = {}
+                if do_faces and face_bboxes:
+                    face_rects = regions_by_category.setdefault("face", [])
+                    for b in face_bboxes:
+                        fx1 = b["x"] + cfg.face_shrink_px
+                        fy1 = b["y"] + cfg.face_shrink_px
+                        fx2 = b["x"] + b["w"] - cfg.face_shrink_px
+                        fy2 = b["y"] + b["h"] - cfg.face_shrink_px
+                        face_rects.append((fx1, fy1, fx2, fy2))
+                if owl_dets:
+                    for det in owl_dets:
+                        cat = label_to_category(det["label"], query_map)
+                        bbox = det["bbox"]
+                        # normalized [x1,y1,x2,y2] → pixel, apply
+                        # owl_shrink_px in pixel space to match what
+                        # the baked-in blur actually covers.
+                        px1 = int(round(bbox[0] * width)) + cfg.owl_shrink_px
+                        py1 = int(round(bbox[1] * height)) + cfg.owl_shrink_px
+                        px2 = int(round(bbox[2] * width)) - cfg.owl_shrink_px
+                        py2 = int(round(bbox[3] * height)) - cfg.owl_shrink_px
+                        regions_by_category.setdefault(cat, []).append(
+                            (px1, py1, px2, py2)
+                        )
+                mask_aggregator.paint(regions_by_category)
+
             frame_idx += 1
+
+            # ---- progress heartbeat (throttled) ----
+            if total_frames_hint > 0:
+                pct = 2.0 + (frame_idx / total_frames_hint) * 93.0
+                progress.emit("detecting", min(pct, 95.0))
+
+        progress.emit("finalizing", 98.0, "assembling manifest")
 
         total_ms = (time.time() - t_start) * 1000.0
         return BlurResult(

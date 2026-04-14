@@ -8,7 +8,11 @@ contract-free at import time. The worker maps between these and the
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Any, Iterable
+from pathlib import Path
+from typing import Any, Iterable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from heimdex_media_pipelines.blur.masks import ProgressCallback
 
 
 # Categories that can appear in a manifest. "face" is added by the face
@@ -56,6 +60,22 @@ class BlurConfig:
     # Compute
     use_gpu: bool = True
 
+    # Per-category mask emission (v0.10+). When ``emit_masks`` is True,
+    # the pipeline writes one lossless FFV1-in-MKV grayscale mask per
+    # entry in ``categories`` to ``mask_dir``. The export worker later
+    # composites a ProRes 4444 layer from the selected subset. Disabled
+    # by default so agents / legacy callers that don't need the layer
+    # workflow pay zero extra cost.
+    emit_masks: bool = False
+    mask_dir: Path | None = None
+
+    # Optional progress callback — invoked from inside ``process_video``
+    # with a ``BlurProgressEvent``. The worker supplies a function that
+    # forwards to the API heartbeat endpoint. Stays optional so unit
+    # tests and the CLI can run without wiring anything up. Declared as
+    # ``Any`` to avoid importing ``masks`` at module import time.
+    progress_callback: Any = None
+
     def __post_init__(self) -> None:
         unknown = set(self.categories) - ALLOWED_CATEGORIES
         if unknown:
@@ -73,6 +93,11 @@ class BlurConfig:
             raise ValueError(
                 f"min_face_confidence must be in [0,1], got {self.min_face_confidence}"
             )
+        if self.emit_masks and self.mask_dir is None:
+            raise ValueError("emit_masks=True requires mask_dir to be set")
+        if self.mask_dir is not None and not isinstance(self.mask_dir, Path):
+            # Accept string callers but store as Path for downstream code.
+            self.mask_dir = Path(self.mask_dir)
 
     @property
     def blur_faces(self) -> bool:
@@ -117,7 +142,15 @@ class DetectionRecord:
 
 @dataclass
 class BlurResult:
-    """Aggregated output of one ``BlurPipeline.process_video`` call."""
+    """Aggregated output of one ``BlurPipeline.process_video`` call.
+
+    ``mask_paths`` is populated when the pipeline ran with
+    ``BlurConfig.emit_masks=True`` — one local filesystem path per
+    category, pointing at a lossless FFV1-in-MKV grayscale video. The
+    worker uploads each to S3 and substitutes the S3 key into the
+    serialized manifest before writing it to object storage; the
+    pipeline library itself never touches S3.
+    """
 
     input_path: str
     output_path: str
@@ -130,6 +163,7 @@ class BlurResult:
     owl_infer_frames: int
     detections: list[DetectionRecord] = field(default_factory=list)
     config: BlurConfig | None = None
+    mask_paths: dict[str, Path] = field(default_factory=dict)
 
     def summary(self) -> dict[str, int]:
         """Category → count of detections (unique frames blurred)."""
@@ -143,9 +177,15 @@ class BlurResult:
 
         The worker uploads this verbatim to S3; downstream search
         indexing consumes it without re-reading the video.
+
+        ``schema_version`` is always ``"2"`` for outputs from this
+        pipeline version — the ``"1"`` literal is kept alive on the
+        contracts side only for re-reading historical manifests.
+        ``mask_s3_keys`` is left ``None`` here and populated by the
+        worker after it uploads each :attr:`mask_paths` entry to S3.
         """
         return {
-            "schema_version": "1",
+            "schema_version": "2",
             "input_path": self.input_path,
             "output_path": self.output_path,
             "video": {
@@ -165,6 +205,7 @@ class BlurResult:
             "config": self.config.to_dict() if self.config else None,
             "summary": self.summary(),
             "detections": [d.to_dict() for d in self.detections],
+            "mask_s3_keys": None,
         }
 
 
