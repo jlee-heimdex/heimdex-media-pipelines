@@ -59,12 +59,15 @@ class OWLv2Detector:
         self._score_threshold = score_threshold
         self._model_id = model_id
 
-        logger.info("owlv2_loading", model=model_id, device=device)
+        # Use stdlib-compatible formatting — the library's logger is
+        # ``logging.getLogger(__name__)``, not structlog, so kwargs like
+        # ``model=...`` would raise ``TypeError`` at runtime.
+        logger.info("owlv2 loading model=%s device=%s", model_id, device)
         t0 = time.time()
         self._processor = Owlv2Processor.from_pretrained(model_id)
         self._model = Owlv2ForObjectDetection.from_pretrained(model_id).to(device)
         self._model.eval()
-        logger.info("owlv2_loaded", elapsed_s=round(time.time() - t0, 2))
+        logger.info("owlv2 loaded in %.2fs", time.time() - t0)
 
     @property
     def device(self) -> str:

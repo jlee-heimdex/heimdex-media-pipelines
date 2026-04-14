@@ -112,10 +112,10 @@ class BlurPipeline:
                 scrfd_det_thresh=self._config.min_face_confidence,
             )
         except Exception as exc:
+            # stdlib-safe formatting — see note in blur/owlv2.py
             logger.warning(
-                "face_detector_init_failed_fallback_haar",
-                detector=self._config.face_detector,
-                error=str(exc),
+                "face_detector_init_failed detector=%s error=%s — falling back to haar",
+                self._config.face_detector, exc,
             )
             name, cascade, scrfd_app = _init_detector(
                 "haar", scrfd_det_size=640, scrfd_ctx_id=-1,
@@ -250,7 +250,7 @@ class BlurPipeline:
                         cfg.min_face_confidence,
                     )
                 except Exception as exc:
-                    logger.warning("face_detect_failed", frame=frame_idx, error=str(exc))
+                    logger.warning("face_detect_failed frame=%d error=%s", frame_idx, exc)
                     raw = []
                 face_bboxes = [
                     b for b in raw
@@ -285,7 +285,7 @@ class BlurPipeline:
                     try:
                         raw_dets = self._owl.detect(frame, flat_queries)
                     except Exception as exc:
-                        logger.warning("owl_detect_failed", frame=frame_idx, error=str(exc))
+                        logger.warning("owl_detect_failed frame=%d error=%s", frame_idx, exc)
                         raw_dets = []
                     cached_owl_dets = [
                         d for d in raw_dets
