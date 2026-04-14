@@ -16,6 +16,7 @@ from typing import Any, Optional
 import typer
 
 import heimdex_media_pipelines as _pkg
+from heimdex_media_pipelines.blur.cli import app as blur_app
 from heimdex_media_pipelines.composition.cli import app as composition_app
 from heimdex_media_pipelines.faces.cli import app as faces_app
 from heimdex_media_pipelines.ocr.cli import app as ocr_app
@@ -26,6 +27,7 @@ app = typer.Typer(
     name="heimdex-pipelines",
     help="Heimdex media processing pipelines CLI.",
 )
+app.add_typer(blur_app, name="blur")
 app.add_typer(composition_app, name="composition")
 app.add_typer(faces_app, name="faces")
 app.add_typer(scenes_app, name="scenes")
