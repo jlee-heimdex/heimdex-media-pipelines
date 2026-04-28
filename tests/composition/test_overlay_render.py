@@ -8,16 +8,63 @@ Regenerate goldens:
     pytest tests/composition/test_overlay_render.py --regen-goldens -v
 
 SSIM tolerance: 0.99 (lowered to 0.98 if PIL version sensitivity is detected).
+
+CI behavior: skipped entirely in environments without (a) the ``composition``
+extra installed (no PIL) or (b) real Pretendard fonts available. Goldens
+were generated against the worker's bundled Pretendard; system-font
+fallbacks would fail the SSIM check on metric drift, so we don't pretend
+to verify what we can't.
 """
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 
 import pytest
-from PIL import Image
+
+# Module-level skip if PIL isn't installed (release CI installs only [dev]
+# extras by default — the composition test module needs [composition]).
+pytest.importorskip("PIL")
+
+import json
+from pathlib import Path
+
+from PIL import Image  # noqa: E402 — must come after importorskip
+
+
+# Module-level skip if real Pretendard fonts are unavailable. Goldens were
+# baked against the sibling worker repo's bundled Pretendard; falling back
+# to renamed system fonts produces different glyph metrics and breaks SSIM.
+def _real_pretendard_available() -> bool:
+    env_dir = os.environ.get("HEIMDEX_TEST_FONT_DIR")
+    if env_dir and os.path.exists(os.path.join(env_dir, "Pretendard-Regular.ttf")):
+        return True
+    here = os.path.dirname(os.path.abspath(__file__))
+    sibling = os.path.normpath(
+        os.path.join(
+            here,
+            "..",
+            "..",
+            "..",
+            "dev-heimdex-for-livecommerce",
+            "services",
+            "shorts-render-worker",
+            "fonts",
+            "Pretendard-Regular.ttf",
+        )
+    )
+    return os.path.exists(sibling)
+
+
+pytestmark = pytest.mark.skipif(
+    not _real_pretendard_available(),
+    reason=(
+        "Real Pretendard fonts not available; bake goldens were generated "
+        "against them and can't be verified against fallback fonts. Set "
+        "HEIMDEX_TEST_FONT_DIR or check out dev-heimdex-for-livecommerce "
+        "as a sibling repo."
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # Optional SSIM import — fall back to byte-equality if scikit-image missing

@@ -20,8 +20,8 @@ jobs:
       - name: Install heimdex-media-contracts
         run: pip install "heimdex-media-contracts>=0.3.0" || pip install "heimdex-media-contracts @ git+https://github.com/jlee-heimdex/heimdex-media-contracts.git@main"
 
-      - name: Install package with dev dependencies
-        run: pip install -e ".[dev]"
+      - name: Install package with dev + composition dependencies
+        run: pip install -e ".[dev,composition]"
 
       - name: Run tests
         run: pytest -x --ignore=tests/test_ocr_golden.py
