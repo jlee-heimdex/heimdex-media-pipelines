@@ -13,7 +13,11 @@ import tempfile
 import time
 from dataclasses import dataclass
 
-from heimdex_media_contracts.composition import CompositionSpec, build_filter_graph
+from heimdex_media_contracts.composition import (
+    CompositionSpec,
+    build_filter_graph,
+    build_overlay_filter_chain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +74,24 @@ def render_composition(
 
     Steps:
     1. extract_clip() for each scene_clip
-    2. build_filter_graph() from heimdex-media-contracts
-    3. Run final ffmpeg encode via subprocess.run()
+    2. Bake each overlay (text or background) to a transparent RGBA PNG via
+       heimdex_media_pipelines.composition.overlay_render.bake_overlay_png.
+       Effects (italic, underline, rotation, opacity, stroke, shadow w/
+       blur+spread) are baked in; ffmpeg only positions and gates timing.
+    3. build_filter_graph() from heimdex-media-contracts (clips + legacy
+       subtitles via drawtext) + build_overlay_filter_chain() (PNG overlays).
+    4. Run final ffmpeg encode via subprocess.run().
+
+    Stream layout for V2 overlays:
+      - Clip inputs: indices 0..N-1
+      - Overlay PNG inputs: indices N..N+M-1 (each via -loop 1 so the
+        single frame is available for the entire enable= window)
+      - Last video label routes through canvas{N} → [final] → [vout],
+        skipping intermediate labels when subtitles or overlays are absent.
     """
     t0 = time.monotonic()
+
+    overlays = sorted(spec.overlays, key=lambda o: o.layer_index)
 
     with tempfile.TemporaryDirectory(prefix="heimdex_comp_") as tmp_dir:
         # 1. Extract clips
@@ -84,7 +102,27 @@ def render_composition(
             extract_clip(src, clip_path, clip.start_ms, clip.end_ms)
             clip_paths.append(clip_path)
 
-        # 2. Build filter graph
+        # 2. Bake overlays — only imports PIL when there's something to bake
+        # so consumers without the [composition] extra still render legacy
+        # compositions (subtitles only) without an ImportError.
+        overlay_png_paths: list[str] = []
+        if overlays:
+            from heimdex_media_pipelines.composition.overlay_render import (
+                bake_overlay_png,
+            )
+
+            for i, ov in enumerate(overlays):
+                png_path = os.path.join(tmp_dir, f"overlay_{i:03d}.png")
+                img = bake_overlay_png(
+                    ov,
+                    canvas_width=spec.output.width,
+                    canvas_height=spec.output.height,
+                    font_dir=font_dir,
+                )
+                img.save(png_path, format="PNG")
+                overlay_png_paths.append(png_path)
+
+        # 3. Build filter graph (clips + drawtext subtitles)
         filter_graph = build_filter_graph(
             clips=spec.scene_clips,
             subtitles=spec.subtitles,
@@ -92,18 +130,44 @@ def render_composition(
             font_dir=font_dir,
         )
 
-        # 3. Build ffmpeg command
+        # 3b. Append overlay filter chain (V2 PNG overlays)
+        if overlays:
+            n_clips = len(spec.scene_clips)
+            has_subtitles = len(spec.subtitles) > 0
+            overlay_label_in = "final" if has_subtitles else f"canvas{n_clips}"
+            overlay_chain = build_overlay_filter_chain(
+                overlays=overlays,
+                overlay_input_indices=list(
+                    range(n_clips, n_clips + len(overlays))
+                ),
+                label_in=overlay_label_in,
+                final_label="vout",
+            )
+            filter_graph = filter_graph + ";\n" + ";\n".join(overlay_chain)
+
+        # 4. Build ffmpeg command
         cmd: list[str] = ["ffmpeg", "-y"]
 
         # Add extracted clips as inputs
         for cp in clip_paths:
             cmd.extend(["-i", cp])
 
+        # Add overlay PNGs as looped image inputs. -loop 1 turns the single
+        # PNG into a continuous video stream so the overlay= filter has
+        # frames available throughout its enable= window.
+        for png in overlay_png_paths:
+            cmd.extend(["-loop", "1", "-i", png])
+
         cmd.extend(["-filter_complex", filter_graph])
 
-        # Determine final output labels
-        has_subtitles = len(spec.subtitles) > 0
-        video_label = "final" if has_subtitles else f"canvas{len(spec.scene_clips)}"
+        # Determine final video label — overlays are last in the chain when
+        # present, then drawtext subtitles, then the last clip canvas.
+        if overlays:
+            video_label = "vout"
+        elif len(spec.subtitles) > 0:
+            video_label = "final"
+        else:
+            video_label = f"canvas{len(spec.scene_clips)}"
         cmd.extend(["-map", f"[{video_label}]", "-map", "[aout]"])
 
         # Encoding preset
