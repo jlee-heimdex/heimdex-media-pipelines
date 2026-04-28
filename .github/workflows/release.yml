@@ -20,8 +20,20 @@ jobs:
       - name: Install heimdex-media-contracts
         run: pip install "heimdex-media-contracts>=0.3.0" || pip install "heimdex-media-contracts @ git+https://github.com/jlee-heimdex/heimdex-media-contracts.git@main"
 
-      - name: Install package with dev dependencies
-        run: pip install -e ".[dev]"
+      - name: Install package with dev + composition dependencies
+        run: pip install -e ".[dev,composition]"
+
+      - name: Create stub font files for composition tests
+        # tests/test_composition_render.py hardcodes font_dir="/fonts" and the
+        # contracts strict resolver (>=0.11) requires files to exist on disk.
+        # Subprocess is mocked so empty files satisfy the resolver without
+        # needing real font assets.
+        run: |
+          sudo mkdir -p /fonts
+          sudo touch /fonts/Pretendard-Regular.ttf \
+                     /fonts/Pretendard-Bold.ttf \
+                     /fonts/NotoSansKR-Regular.ttf \
+                     /fonts/NotoSansKR-Bold.ttf
 
       - name: Run tests
         run: pytest -x --ignore=tests/test_ocr_golden.py
